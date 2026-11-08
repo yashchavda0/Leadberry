@@ -1,0 +1,15 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/leads/page": "/leads",
+  "/account/page": "/account",
+  "/accept-invite/page": "/accept-invite",
+  "/leads/[id]/page": "/leads/[id]",
+  "/marketplace/page": "/marketplace",
+  "/leads/new/page": "/leads/new",
+  "/page": "/",
+  "/roles/page": "/roles",
+  "/users/page": "/users",
+  "/login/page": "/login",
+  "/onboarding/page": "/onboarding",
+  "/settings/page": "/settings"
+}

@@ -1,0 +1,9 @@
+
+Running 4 tests using 1 worker
+
+  ok 1 tests\crm.spec.ts:5:1 › marketplace provider-specific credentials, multiple accounts and responsive layout (12.3s)
+  ok 2 tests\crm.spec.ts:67:1 › landing selection respects permission revocation and role-only management access (5ms)
+  ok 3 tests\crm.spec.ts:79:1 › owner onboarding, roles, invitations, leads, restricted member and responsive navigation (45.2s)
+  ok 4 tests\crm.spec.ts:265:1 › mobile login is usable and invalid credentials are explained (1.6s)
+
+  4 passed (1.2m)

@@ -1,0 +1,7 @@
+INFO:     Started server process [35292]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8057 (Press CTRL+C to quit)
+2026-11-07 21:57:42,183 WARNING app.main access_rejected code=invalid_credentials
+2026-11-07 21:57:51,976 WARNING app.main database_readiness_schema_or_role_invalid
+2026-11-07 22:01:50,588 WARNING app.main access_rejected code=invalid_credentials

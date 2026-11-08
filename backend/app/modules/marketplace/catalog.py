@@ -5,6 +5,25 @@ def field(key: str, label: str, secret: bool = False, required: bool = True) -> 
     return {"key": key, "label": label, "secret": secret, "required": required}
 
 
+INTERVALS = [300, 600, 900, 1200, 1800, 3600]
+
+
+def schedule(
+    window_unit: str, window_days: int, history_days: int, empty_stop_windows: int | None
+) -> dict:
+    return {
+        "min_interval_seconds": 300,
+        "slot_guard_seconds": 15,
+        "cooldown_seconds": 900,
+        "allowed_intervals": INTERVALS,
+        "default_interval_seconds": 900,
+        "max_window_seconds": window_days * 86400,
+        "window_unit": window_unit,
+        "history_days": history_days,
+        "empty_stop_windows": empty_stop_windows,
+    }
+
+
 PROVIDERS = [
     {
         "code": "indiamart",
@@ -14,10 +33,10 @@ PROVIDERS = [
         "setup": True,
         "adapter": True,
         "multiple_accounts": True,
-        "min_interval_seconds": 300,
+        **schedule("second", 7, 365, None),
         "fields": [field("crm_key", "API key", True)],
         "documentation_url": "https://help.indiamart.com/knowledge-base/lms-crm-integration-v2/",
-        "note": "Requires IndiaMART LMS API entitlement. Requests are spaced at least five minutes apart.",
+        "note": "Requires IndiaMART LMS API entitlement. One request per key every five minutes; IndiaMART recommends syncing every 10-15 minutes. Up to 365 days of past leads can be imported in 7-day windows.",
     },
     {
         "code": "tradeindia",
@@ -27,15 +46,15 @@ PROVIDERS = [
         "setup": True,
         "adapter": True,
         "multiple_accounts": None,
-        "min_interval_seconds": 300,
-        "cooldown_seconds": 900,
+        # Verified 2026-11-08: ranges over one day return HTTP 400; a 190-day-old day still returned inquiries.
+        **schedule("day", 1, 365, 30),
         "fields": [
             field("user_id", "User ID"),
             field("profile_id", "Profile ID"),
             field("api_key", "API key", True),
         ],
         "documentation_url": "https://www.tradeindia.com/utils/my_inquiry.html",
-        "note": "Pulls inquiries by date window every five minutes. TradeIndia allows 5 requests per 5 minutes and blocks the key for 15 minutes when exceeded, so avoid using the same key elsewhere.",
+        "note": "Pulls inquiries one calendar day per request on the chosen interval. TradeIndia allows 5 requests per 5 minutes and blocks the key for 15 minutes when exceeded, so avoid using the same key elsewhere. Past inquiries (up to 365 days) are imported one day per request.",
     },
     {
         "code": "facebook",

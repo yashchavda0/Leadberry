@@ -64,18 +64,93 @@ Malformed/incomplete responses fail the whole run without advancing its checkpoi
 
 Minimum spacing is five minutes per key. Each window is at most seven days, with
 a five-minute overlap. A new account starts from the preceding day; a successful
-test does not ingest or advance that watermark. Larger catch-up proceeds in
-seven-day windows, never silently skipping backlog. Data older than 365 days
-requires an explicit recovery decision. Provider documentation states keys expire
-after seven unused days or regeneration; reconnect/rotate then test again.
+test does not ingest or advance that watermark. Backlog older than one window is
+moved to the history ledger (gap recovery, below), never silently skipped.
+Older history is imported through the history ledger described below.
+Provider documentation states keys expire after seven unused days or regeneration;
+reconnect/rotate then test again.
+
+Response codes (official Pull API documentation, December 2025): `204` with
+"no leads" is an empty success whatever its `STATUS`; `204` "Leads before X will
+be available after 24 hours" (new key) is `provider_history_not_ready` and the
+period is retried after X + 24 h; `400` "last 365 days" is `provider_history_expired`;
+`429` (more than one hit in 5 minutes, or more than 5 hits a minute, which blocks the
+key for 15 minutes) is `provider_rate_limited` with a 15-minute cooldown; `500` is
+`provider_unavailable`; more than 10,000 records is `provider_payload_too_large`.
 
 Leads are attributed to the configuring member and arrive unassigned in the default
 lead status, visible to every user with lead access. Connections no longer have a
 default assignee; saving a connection clears any legacy assignee.
 Retries preserve manually edited lead fields rather than overwriting them.
 The creator must remain active and retain `marketplace.manage`; otherwise work
-is cancelled/not claimed. Custom mapping/assignment editors, arbitrary historical
-backfill controls and replay are not part of this slice.
+is cancelled/not claimed. Custom mapping/assignment editors and replay are not part
+of this slice.
+
+## Sync schedule and history import
+
+Each connection has a live sync interval: 5, 10, 15 (default, recommended by
+IndiaMART), 20, 30 or 60 minutes, changed with `PUT /accounts/{id}/schedule`
+without re-testing. Migration `0010_marketplace_schedule` moved existing
+connections to 15 minutes.
+
+Every API key gets one request slot per 5 minutes plus a 15-second guard (315 s),
+shared across organizations through `marketplace_rate_limits`. Each free slot goes
+to, in order: a queued connection test or manual sync, a due live sync
+(`next_live_at`), then a history window, but only when the next live sync is at
+least one slot minus 90 seconds away. Live sync therefore starts at most about
+90 seconds late. Import runs are created directly as running, so they never sit in
+the queue ahead of live sync.
+
+| Interval | Import slots per cycle | Windows per hour | IndiaMART 365 days (53 windows) | TradeIndia 365 days (365 windows) |
+| -------- | ---------------------- | ---------------- | ------------------------------- | --------------------------------- |
+| 5 min    | 0 (import paused)      | 0                | -                               | -                                 |
+| 10 min   | 1                      | 6                | about 9 h                       | about 61 h                        |
+| 15 min   | 2                      | 8                | about 6.6 h                     | about 46 h                        |
+| 20 min   | 3                      | 9                | about 5.9 h                     | about 41 h                        |
+| 30 min   | 5                      | 10               | about 5.3 h                     | about 37 h                        |
+
+History import (`marketplace_backfills` job + `marketplace_backfill_windows` ledger)
+is started by the setup checkbox or `POST /accounts/{id}/backfills` with an optional
+`from_date`/`to_date` (IST days). The range is clamped to the provider's history
+(365 days for both) and split into provider windows: IndiaMART up to 7 days,
+TradeIndia exactly one IST day, because TradeIndia answers ranges longer than one
+day with HTTP 400 "greater than 24 hours not allowed for inquiries" (verified with a
+real key on 8 November 2026, which also returned inquiries for a day 190 days back).
+Windows are processed newest first. One active import
+per connection. Each window keeps its state, attempts, next attempt time, hold reason
+and, for TradeIndia, the next page, so a busy day continues in the next slot
+instead of exceeding 5 requests. Too-large windows are split in halves. Transient
+failures retry with backoff (5 min doubling to 2 h, five attempts) before the window
+is marked failed; `.../backfills/{bid}/retry` re-queues failed windows and
+`.../cancel` stops the import. TradeIndia imports stop after 30 empty days in
+a row. Replacing the key or deleting the connection cancels the import; pausing
+only holds it. Imported leads keep the provider enquiry time as `received_at` so
+they do not count as today's leads; `created_at` records the import time. Imports
+never move the live watermark.
+
+Gap recovery: when a live sync finds its watermark more than one window behind
+(IndiaMART 7 days; TradeIndia anything before yesterday), for example after a long
+pause or worker outage, it fetches only the newest window and moves the watermark
+forward. TradeIndia live requests never cross an IST midnight: yesterday's tail is
+fetched first and today follows at the next slot. The older missed range, clamped to the
+provider's history, is added to the active history job or to a new job of kind
+`gap` (migration `0011_marketplace_gap_recovery`), shown as "Recovering missed
+leads". Both happen in the live run's transaction, so a failed live run records
+nothing and retries. At a 5-minute interval, recovery waits for a longer interval
+like any import.
+
+Every hold is visible. Account responses carry `schedule_status.live` and
+`schedule_status.history` with `state`, `reason`, `until` (and `eta`/progress for
+imports); windows expose their own reason through
+`GET .../backfills/{bid}/windows`. Reason codes: `waiting_key_slot`,
+`shared_key_slot`, `provider_cooldown`, `provider_unavailable_retry`,
+`provider_timeout_retry`, `provider_error_retry`, `history_not_ready`,
+`history_expired`, `window_split_large`, `window_continues_next_slot`,
+`import_paused_interval_5min`, `import_paused_account_paused`,
+`import_paused_needs_test`, `import_cancelled_*`, `import_stopped_no_older_data`,
+`import_completed_with_failures`, `key_expiry_risk` (IndiaMART key unused for 5 of
+its 7 days), `worker_offline` and `gap_recovery`. The Marketplace page shows
+them with the resume time, and queued manual requests report when they will run.
 
 Provider failures stop automatic sync and require a successful test and activation.
 Expired leases recover queued work; transient provider failures are visible and
@@ -126,9 +201,9 @@ with uvicorn directly, run the worker in another terminal:
 Without `--organization` the worker serves every organization (it reads only
 organization IDs from `crm.organization_directory`; tenant data stays behind RLS).
 `--organization UUID` limits it to one tenant and `--once` runs a single pass.
-Activate after a successful test; active connections sync automatically
-(IndiaMART and TradeIndia every five minutes; the same spacing applies
-between any two runs with one key, including tests). TradeIndia allows 5 requests
+Activate after a successful test; active connections sync automatically on their
+configured interval (default 15 minutes; the 5-minute key spacing applies between
+any two requests with one key, including tests and history imports). TradeIndia allows 5 requests
 per 5 minutes and answers excess calls with HTTP 403 "Rate limit exceed", blocking
 the key for 15 minutes: a run uses at most 5 pages, and a rate-limit response is
 recorded as `provider_rate_limited`, keeps the connection verified/active and

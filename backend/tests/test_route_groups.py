@@ -63,6 +63,10 @@ GROUPS = {
         "/marketplace/accounts/{account_id}": {"put"},
         "/marketplace/accounts/{account_id}/{action}": {"post"},
         "/marketplace/accounts/{account_id}/runs": {"get"},
+        "/marketplace/accounts/{account_id}/schedule": {"put"},
+        "/marketplace/accounts/{account_id}/backfills": {"get", "post"},
+        "/marketplace/accounts/{account_id}/backfills/{backfill_id}/windows": {"get"},
+        "/marketplace/accounts/{account_id}/backfills/{backfill_id}/{action}": {"post"},
     },
     "Health": {"/health/live": {"get"}, "/health/ready": {"get"}},
 }

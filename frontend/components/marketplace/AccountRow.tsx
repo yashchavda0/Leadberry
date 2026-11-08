@@ -5,21 +5,27 @@ import { useState } from "react";
 import Icon from "@/components/Icon";
 import ProviderLogo from "@/components/ProviderLogo";
 import StatusBadge from "@/components/StatusBadge";
-import { formatDate, type MarketplaceAccount, type MarketplaceProvider } from "@/lib/crm";
+import BackfillProgress, { type ImportAction } from "@/components/marketplace/BackfillProgress";
+import HoldReason from "@/components/marketplace/HoldReason";
+import { formatDate, formatInterval, type MarketplaceAccount, type MarketplaceProvider } from "@/lib/crm";
 
 export type AccountStatus = { label: string; tone: "success" | "warn" | "danger" | ""; detail: string };
 export type AccountAction = "test" | "sync" | "activate" | "pause" | "retire";
 
-export default function AccountRow({ account, provider, providerName, status, manage, busy, pending, verified, onAction, onHistory, onSettings }: {
+export default function AccountRow({ account, provider, providerName, status, manage, busy, pending, verified, onAction, onHistory, onSettings, onSchedule, onImport, onImportDetails, onImportAction }: {
   account: MarketplaceAccount; provider?: MarketplaceProvider; providerName: string; status: AccountStatus; manage: boolean;
   busy: boolean; pending: boolean; verified: boolean;
   onAction: (action: AccountAction) => void; onHistory: () => void; onSettings: () => void;
+  onSchedule: () => void; onImport: () => void; onImportDetails: () => void; onImportAction: (action: ImportAction) => void;
 }) {
   const [open, setOpen] = useState(false);
   const leads = `/leads?${new URLSearchParams({ integration_id: account.id, connection: account.name })}`;
+  const live = account.schedule_status.live;
+  const history = account.schedule_status.history;
+  const importing = history?.state === "active";
   return <article className="account-row">
     <div className="account-row-main">
-      <div className="marketplace-title account-row-id"><ProviderLogo code={account.provider_code} name={providerName} /><div><h3>{account.name}</h3><span className="small muted">{providerName}</span></div></div>
+      <div className="marketplace-title account-row-id"><ProviderLogo code={account.provider_code} name={providerName} /><div><h3>{account.name}</h3><span className="small muted">{providerName}{provider?.adapter ? ` · every ${formatInterval(account.sync_interval_seconds)}` : ""}</span></div></div>
       <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
       <div className="account-row-meta small muted"><span>Last lead</span><strong>{formatDate(account.last_received_at)}</strong></div>
       <div className="account-row-actions">
@@ -29,6 +35,8 @@ export default function AccountRow({ account, provider, providerName, status, ma
             ? <button className="btn btn-primary action-main" disabled={busy} onClick={() => onAction("activate")}><Icon name="play" />Activate</button>
             : <button className="btn btn-primary action-main" disabled={busy || pending} onClick={() => onAction("test")}><Icon name="plug" />{pending ? "Testing..." : "Test connection"}</button>)}
         {manage && provider?.adapter && account.status === "active" && <button className="btn icon-btn" aria-label="Pause" title="Pause" disabled={busy} onClick={() => onAction("pause")}><Icon name="pause" /></button>}
+        {manage && provider?.adapter && <button className="btn icon-btn" aria-label={`Sync schedule for ${account.name}`} title="Sync schedule" disabled={busy} onClick={onSchedule}><Icon name="clock" /></button>}
+        {manage && provider?.adapter && <button className="btn icon-btn" aria-label={`Import past leads for ${account.name}`} title={importing ? "History import running" : "Import past leads"} disabled={busy || importing} onClick={onImport}><Icon name="download" /></button>}
         {manage && provider?.setup && <button className="btn icon-btn" aria-label={`Settings for ${account.name}`} title="Settings" disabled={busy} onClick={onSettings}><Icon name="settings" /></button>}
         <Link className="btn icon-btn" href={leads} title="View leads" aria-label="View leads"><Icon name="leads" /></Link>
         <button className="btn icon-btn" aria-label="History" title="History" onClick={onHistory}><Icon name="history" /></button>
@@ -39,8 +47,11 @@ export default function AccountRow({ account, provider, providerName, status, ma
     {status.tone === "danger"
       ? <div className="account-row-alert" role="alert"><Icon name="alert" size={16} /><span>{status.detail}</span></div>
       : <p className="small muted account-row-status">{status.detail}</p>}
+    <HoldReason className="account-row-hold" reason={live.reason} until={live.until} provider={providerName} />
+    {history && <BackfillProgress history={history} providerName={providerName} manage={manage} busy={busy} onDetails={onImportDetails} onAction={onImportAction} />}
     {open && <dl className="marketplace-details">
       {provider?.fields.map(field => <div key={field.key}><dt>{field.label}</dt><dd className={field.secret ? "mono" : undefined}>{field.secret ? account.credential_hint?.[field.key] || "Saved (hidden)" : account.config[field.key] || "-"}</dd></div>)}
+      {provider?.adapter && <div><dt>Sync schedule</dt><dd>Every {formatInterval(account.sync_interval_seconds)}</dd></div>}
       <div><dt>Last successful check</dt><dd>{formatDate(account.last_success_at)}</dd></div>
       <div><dt>Last lead received</dt><dd>{formatDate(account.last_received_at)}</dd></div>
     </dl>}

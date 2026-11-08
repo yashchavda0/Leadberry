@@ -1,7 +1,7 @@
 import html
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -39,14 +39,28 @@ def normalize_response(payload) -> list[dict]:
             identity = text(str(record["rfi_id"]), 200)
             if not identity:
                 raise ValueError("Missing record identity")
-            name = text(record.get("sender_name"), 200) or text(record.get("sender_co"), 200) or "TradeIndia enquiry"
+            name = (
+                text(record.get("sender_name"), 200)
+                or text(record.get("sender_co"), 200)
+                or "TradeIndia enquiry"
+            )
             generated = datetime.fromtimestamp(int(record["generated"]), timezone.utc)
-            leads.append({"source_record_id": identity, "name": name, "company": text(record.get("sender_co"), 200),
-                          "phone": text(record.get("sender_mobile"), 100), "email": "",
-                          "city": text(record.get("sender_city"), 200), "state": text(record.get("sender_state"), 200),
-                          "address": "", "product": text(record.get("product_name"), 500),
-                          "enquiry": clean_message(record.get("message")) or text(record.get("subject"), 2000),
-                          "source_time": generated.isoformat()})
+            leads.append(
+                {
+                    "source_record_id": identity,
+                    "name": name,
+                    "company": text(record.get("sender_co"), 200),
+                    "phone": text(record.get("sender_mobile"), 100),
+                    "email": "",
+                    "city": text(record.get("sender_city"), 200),
+                    "state": text(record.get("sender_state"), 200),
+                    "address": "",
+                    "product": text(record.get("product_name"), 500),
+                    "enquiry": clean_message(record.get("message"))
+                    or text(record.get("subject"), 2000),
+                    "source_time": generated.isoformat(),
+                }
+            )
     except (KeyError, TypeError, ValueError, AttributeError):
         raise AccessError(502, "provider_payload_invalid") from None
     return leads
@@ -57,8 +71,17 @@ async def _get_page(client: httpx.AsyncClient, params: dict) -> list:
         async with client.stream("GET", ENDPOINT, params=params) as response:
             if response.status_code in (401, 403):
                 # TradeIndia reports quota exhaustion as 403 with a "Rate limit exceed" message.
-                body = (await response.aread())[:2048].decode("utf-8", "replace").lower()
-                raise AccessError(502, "provider_rate_limited" if "rate limit" in body else "provider_credentials_rejected")
+                body = (
+                    (await response.aread())[:2048].decode("utf-8", "replace").lower()
+                )
+                raise AccessError(
+                    502,
+                    (
+                        "provider_rate_limited"
+                        if "rate limit" in body
+                        else "provider_credentials_rejected"
+                    ),
+                )
             if response.status_code == 429:
                 raise AccessError(502, "provider_rate_limited")
             if response.status_code != 200:
@@ -77,16 +100,41 @@ async def _get_page(client: httpx.AsyncClient, params: dict) -> list:
         raise AccessError(502, "provider_payload_invalid") from None
 
 
-async def fetch_leads(client: httpx.AsyncClient, config: dict, key: str, start: datetime, end: datetime) -> list[dict]:
-    if start >= end or (end - start).total_seconds() > 7 * 86400:
+async def fetch_pages(
+    client: httpx.AsyncClient,
+    config: dict,
+    key: str,
+    start: datetime,
+    end: datetime,
+    first_page: int = 1,
+) -> tuple[list[dict], int | None]:
+    """Returns the leads and the page to continue from in the next slot, if the window has more."""
+    first_day = start.astimezone(IST).date()
+    last_day = (end - timedelta(microseconds=1)).astimezone(IST).date()
+    # TradeIndia rejects ranges longer than one day with HTTP 400.
+    if start >= end or first_day != last_day:
         raise AccessError(422, "provider_window_invalid")
-    base = {"userid": config["user_id"], "profile_id": config["profile_id"], "key": key,
-            "from_date": start.astimezone(IST).date().isoformat(), "to_date": end.astimezone(IST).date().isoformat(),
-            "limit": PAGE_SIZE}
+    base = {
+        "userid": config["user_id"],
+        "profile_id": config["profile_id"],
+        "key": key,
+        "from_date": first_day.isoformat(),
+        "to_date": last_day.isoformat(),
+        "limit": PAGE_SIZE,
+    }
     leads: list[dict] = []
-    for page in range(1, MAX_PAGES + 1):
+    for page in range(first_page, first_page + MAX_PAGES):
         records = normalize_response(await _get_page(client, {**base, "page_no": page}))
         leads.extend(records)
         if len(records) < PAGE_SIZE:
-            return leads
-    raise AccessError(502, "provider_payload_too_large")
+            return leads, None
+    return leads, first_page + MAX_PAGES
+
+
+async def fetch_leads(
+    client: httpx.AsyncClient, config: dict, key: str, start: datetime, end: datetime
+) -> list[dict]:
+    leads, more = await fetch_pages(client, config, key, start, end)
+    if more:
+        raise AccessError(502, "provider_payload_too_large")
+    return leads

@@ -135,6 +135,113 @@ test("marketplace provider-specific credentials, multiple accounts and responsiv
   expect(errors).toEqual([]);
 });
 
+test("marketplace sync schedule and history import explain every hold", async ({
+  page,
+}) => {
+  page.on("pageerror", (error) => {
+    throw error;
+  });
+  const accountId = randomUUID();
+  const backfillId = randomUUID();
+  const now = Date.now();
+  const at = (minutes: number) => new Date(now + minutes * 60000).toISOString();
+  let interval = 900;
+  let scheduleBody: unknown = null;
+  const account = () => ({
+    id: accountId,
+    provider_code: "indiamart",
+    name: "North sales",
+    status: "active",
+    config: {},
+    credential_hint: { crm_key: "••••••••1234" },
+    credential_version: 1,
+    verified_version: 1,
+    row_version: 4,
+    last_success_at: at(-3),
+    last_received_at: at(-60),
+    safe_error_code: null,
+    sync_interval_seconds: interval,
+    last_run_kind: "sync",
+    last_run_state: "completed",
+    last_run_error: null,
+    last_run_at: at(-3),
+    created_at: at(-600),
+    updated_at: at(-3),
+    schedule_status: {
+      live: { state: "held", reason: "provider_cooldown", until: at(12), next_request_at: at(12) },
+      history: {
+        id: backfillId, state: "active", range_start: at(-525600), range_end: at(-600),
+        windows_total: 53, windows_done: 2, windows_failed: 0, windows_pending: 51,
+        fetched_count: 9, accepted_count: 7, created_at: at(-600), finished_at: null,
+        reason: "history_not_ready", until: at(600), eta: at(1000),
+      },
+    },
+  });
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.slice("/api/v1".length);
+    const fulfill = (body: unknown, status = 200) =>
+      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    if (path === "/auth/me")
+      return fulfill({
+        organization_id: randomUUID(), membership_id: randomUUID(), user_id: randomUUID(), is_owner: true,
+        permissions: ["marketplace.view", "marketplace.manage"], data_scope: "all", landing_page: "/marketplace",
+      });
+    if (path === "/organizations/me")
+      return fulfill({ id: randomUUID(), slug: "schedule-ui", name: "Schedule UI", timezone: "Asia/Kolkata", status: "active" });
+    if (path === "/marketplace/providers")
+      return fulfill({
+        data: [{
+          code: "indiamart", name: "IndiaMART", category: "marketplace", method: "CRM key / Pull API", setup: true,
+          adapter: true, multiple_accounts: true, documentation_url: null, note: "",
+          fields: [{ key: "crm_key", label: "API key", secret: true, required: true }],
+          allowed_intervals: [300, 600, 900, 1200, 1800, 3600], default_interval_seconds: 900, history_days: 365,
+        }],
+        credential_storage_ready: true, worker_online: true, worker_last_seen_at: at(0),
+      });
+    if (path === "/marketplace/accounts") return fulfill({ data: [account()], next_cursor: null });
+    if (path === `/marketplace/accounts/${accountId}/schedule`) {
+      scheduleBody = request.postDataJSON();
+      interval = 1800;
+      return fulfill(account());
+    }
+    if (path === `/marketplace/accounts/${accountId}/backfills/${backfillId}/windows`)
+      return fulfill({
+        data: [
+          { id: randomUUID(), window_start: at(-10680), window_end: at(-600), state: "completed", attempts: 0, next_attempt_at: at(-600), next_page: 1, hold_reason: null, safe_error_code: null, fetched_count: 9, accepted_count: 7, updated_at: at(-500) },
+          { id: randomUUID(), window_start: at(-20760), window_end: at(-10680), state: "pending", attempts: 0, next_attempt_at: at(600), next_page: 1, hold_reason: "history_not_ready", safe_error_code: "provider_history_not_ready", fetched_count: 0, accepted_count: 0, updated_at: at(-400) },
+        ],
+        next_cursor: null,
+      });
+    return fulfill({ code: "not_found" }, 404);
+  });
+
+  await page.goto("/marketplace");
+  await page.getByRole("tab", { name: /Connected accounts/ }).click();
+  const row = page.locator(".account-row").filter({ has: page.getByRole("heading", { name: "North sales" }) });
+  await expect(row).toContainText("every 15 min");
+  await expect(row.locator('[data-reason="provider_cooldown"]')).toContainText("IndiaMART temporarily blocked this key");
+  await expect(row.locator('[data-reason="provider_cooldown"]')).toContainText(/in 1[12] min/);
+  await expect(row.locator('[data-reason="history_not_ready"]')).toContainText("24 hours after the key was generated");
+  await expect(row.getByRole("progressbar", { name: "History import progress" })).toHaveAttribute("aria-valuenow", "4");
+  await expect(row.getByRole("button", { name: "Import past leads for North sales" })).toBeDisabled();
+
+  await row.getByRole("button", { name: "Import details" }).click();
+  const details = page.getByRole("dialog");
+  await expect(details.getByText("Imported", { exact: true })).toBeVisible();
+  await expect(details.locator('[data-reason="history_not_ready"]')).toBeVisible();
+  await page.getByRole("button", { name: "Close history import details" }).click();
+
+  await row.getByRole("button", { name: "Sync schedule for North sales" }).click();
+  await page.getByLabel("Sync every").selectOption("300");
+  await expect(page.getByRole("dialog")).toContainText("history import pauses at this interval");
+  await page.getByLabel("Sync every").selectOption("1800");
+  await page.getByRole("button", { name: "Save schedule" }).click();
+  expect(scheduleBody).toEqual({ sync_interval_seconds: 1800 });
+  await expect(page.getByText("North sales now syncs every 30 min.")).toBeVisible();
+  await expect(row).toContainText("every 30 min");
+});
+
 test("landing selection respects permission revocation and role-only management access", () => {
   const identity: Identity = {
     organization_id: "org",

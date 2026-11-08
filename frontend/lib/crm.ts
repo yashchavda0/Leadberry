@@ -10,6 +10,48 @@ export type MarketplaceProvider = {
   documentation_url: string | null;
   note: string;
   fields: { key: string; label: string; secret: boolean; required: boolean }[];
+  allowed_intervals?: number[];
+  default_interval_seconds?: number;
+  history_days?: number;
+  max_window_seconds?: number;
+};
+export type LiveStatus = {
+  state: "off" | "held" | "running" | "waiting" | "scheduled";
+  reason: string | null;
+  until: string | null;
+  next_request_at: string | null;
+};
+export type HistoryStatus = {
+  id: string;
+  kind: "import" | "gap";
+  state: "active" | "completed" | "cancelled";
+  range_start: string;
+  range_end: string;
+  windows_total: number;
+  windows_done: number;
+  windows_failed: number;
+  windows_pending: number;
+  fetched_count: number;
+  accepted_count: number;
+  created_at: string;
+  finished_at: string | null;
+  reason: string | null;
+  until: string | null;
+  eta: string | null;
+};
+export type BackfillWindow = {
+  id: string;
+  window_start: string;
+  window_end: string;
+  state: "pending" | "running" | "completed" | "failed" | "expired" | "skipped" | "split" | "cancelled";
+  attempts: number;
+  next_attempt_at: string;
+  next_page: number;
+  hold_reason: string | null;
+  safe_error_code: string | null;
+  fetched_count: number;
+  accepted_count: number;
+  updated_at: string;
 };
 export type MarketplaceAccount = {
   id: string;
@@ -24,7 +66,9 @@ export type MarketplaceAccount = {
   last_success_at: string | null;
   last_received_at: string | null;
   safe_error_code: string | null;
-  last_run_kind: "test" | "sync" | null;
+  sync_interval_seconds: number;
+  schedule_status: { live: LiveStatus; history: HistoryStatus | null };
+  last_run_kind: "test" | "sync" | "backfill" | null;
   last_run_state:
     | "queued"
     | "running"
@@ -44,6 +88,8 @@ export type MarketplaceRun = {
   fetched_count: number;
   accepted_count: number;
   safe_error_code: string | null;
+  window_start: string | null;
+  window_end: string | null;
   created_at: string;
   finished_at: string | null;
 };
@@ -250,6 +296,15 @@ const messages: Record<string, string> = {
   invalid_provider_credentials: "Enter the API key for this provider.",
   marketplace_key_unavailable:
     "Secure credential storage is not configured on the server.",
+  invalid_sync_interval: "Choose one of the offered sync intervals.",
+  marketplace_backfill_active:
+    "A history import is already running for this connection. Cancel it or wait for it to finish.",
+  marketplace_backfill_range_empty:
+    "There is nothing to import in that range: it is outside the provider's history limit or already covered by live sync.",
+  marketplace_backfill_range_invalid: "The start date must be on or before the end date.",
+  marketplace_backfill_closed: "This import has already finished or was cancelled.",
+  marketplace_backfill_nothing_to_retry: "No failed periods to retry.",
+  marketplace_backfill_not_found: "This import is no longer available.",
 };
 
 export const marketplaceErrors: Record<string, string> = {
@@ -269,7 +324,11 @@ export const marketplaceErrors: Record<string, string> = {
   provider_payload_too_large:
     "The provider returned too much data in one window.",
   provider_history_expired:
-    "The backlog is older than 365 days. Reconnect to start from today.",
+    "That period is older than the provider keeps (IndiaMART: 365 days), so it can no longer be fetched.",
+  provider_history_not_ready:
+    "IndiaMART releases leads older than a new API key 24 hours after the key was generated. Retried automatically.",
+  worker_lease_expired:
+    "The connector stopped while working on this request. The period goes back in the queue.",
   marketplace_key_unavailable:
     "The connector worker could not decrypt this key. Re-enter the API key.",
   integration_actor_inactive:
@@ -361,6 +420,63 @@ export function formatDate(value: string | null): string {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+export function formatDay(value: string): string {
+  return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export function formatInterval(seconds: number): string {
+  return seconds % 3600 === 0 ? `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}` : `${seconds / 60} min`;
+}
+
+// Mirrors backend schedule.backfill_slots_per_cycle: 315 s request slot, live may slip 90 s.
+export function importSlotsPerCycle(interval: number): number {
+  return Math.max(0, Math.floor((interval - 315 + 90) / 315));
+}
+
+/** "in 4 min · 10:35": relative and exact, so the user knows both how long and when. */
+export function formatWhen(value: string | null, now = Date.now()): string {
+  if (!value) return "";
+  const target = new Date(value);
+  const minutes = Math.round((target.getTime() - now) / 60000);
+  const sameDay = target.toDateString() === new Date(now).toDateString();
+  const exact = target.toLocaleString(undefined, sameDay ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" });
+  if (minutes <= 0) return exact;
+  const relative = minutes < 60 ? `${minutes} min` : minutes < 2880 ? `${Math.round(minutes / 60)} h` : `${Math.round(minutes / 1440)} days`;
+  return `in ${relative} · ${exact}`;
+}
+
+export function holdReasonText(reason: string, provider: string, until: string | null): string {
+  const when = formatWhen(until);
+  const at = when ? ` (${when})` : "";
+  const texts: Record<string, string> = {
+    waiting_key_slot: `${provider} allows one request every 5 minutes per API key. Next request${at}.`,
+    shared_key_slot: `This API key is also used by another connection, so requests take turns. Next turn${at}.`,
+    provider_cooldown: `${provider} temporarily blocked this key for too many requests. Resuming${at}.`,
+    provider_unavailable_retry: `${provider} is not responding. Retrying automatically${at}.`,
+    provider_timeout_retry: `${provider} took too long to respond. Retrying automatically${at}.`,
+    provider_error_retry: `The last import request failed. Retrying automatically${at}.`,
+    history_not_ready: `${provider} releases leads older than a new API key only 24 hours after the key was generated. Older leads will be fetched${at}.`,
+    history_expired: `Older than ${provider}'s history limit, so this period can no longer be fetched.`,
+    window_split_large: "This period had too many leads for one request, so it was split into smaller parts.",
+    window_continues_next_slot: "This period has more pages; the rest is fetched in the next request slot.",
+    import_paused_interval_5min: `History import is paused: syncing every 5 minutes uses every request ${provider} allows. Choose 10 minutes or more to free slots.`,
+    import_paused_account_paused: "History import resumes when the connection is active again.",
+    import_paused_needs_test: "History import waits until the connection is tested and active.",
+    import_cancelled_credentials_changed: "Import cancelled because the API key changed. Start a new import for the new key.",
+    import_cancelled_connection_removed: "Import cancelled because the connection was deleted.",
+    import_cancelled_by_user: "Import cancelled.",
+    import_cancelled_actor_inactive: "Import cancelled because the member who created this connection lost marketplace access.",
+    import_stopped_no_older_data: `Stopped early: ${provider} returned no older enquiries for several weeks in a row.`,
+    import_completed_with_failures: "Import finished, but some periods failed. Open the import details to retry them.",
+    key_expiry_risk: until && new Date(until).getTime() > Date.now()
+      ? `${provider} expires API keys that are unused for 7 days. Resume before ${formatDate(until)} to keep this key.`
+      : `This key has not been used for over 7 days and may have expired at ${provider}. Generate a new key if the test fails.`,
+    worker_offline: "The connector is offline. Requests run as soon as it starts again.",
+    gap_recovery: `Live sync resumed with the most recent period. Leads missed before that are fetched from ${provider} in the free request slots, newest first.`,
+  };
+  return texts[reason] || reason.replaceAll("_", " ");
 }
 
 export const landingPages = [

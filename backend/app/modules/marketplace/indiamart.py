@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+import re
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -7,17 +8,51 @@ from ..identity.service import AccessError
 
 IST = ZoneInfo("Asia/Kolkata")
 ENDPOINT = "https://mapi.indiamart.com/wservce/crm/crmListing/v2/"
+MAX_RECORDS = 10000
+RELEASE_TIME = re.compile(r"(\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2})")
+
+
+class HistoryNotReady(AccessError):
+    """IndiaMART releases leads older than a new key only 24 hours after the key was generated."""
+
+    def __init__(self, until: datetime | None) -> None:
+        super().__init__(409, "provider_history_not_ready")
+        self.until = until
+
+
+def release_time(message: str) -> datetime | None:
+    match = RELEASE_TIME.search(message)
+    if not match:
+        return None
+    try:
+        generated = datetime.strptime(match.group(1), "%d-%m-%Y %H:%M:%S")
+    except ValueError:
+        return None
+    return generated.replace(tzinfo=IST) + timedelta(hours=24)
 
 
 def normalize_response(payload: dict) -> list[dict]:
-    if not isinstance(payload, dict) or str(payload.get("CODE")) not in ("200", "204") or payload.get("STATUS") != "SUCCESS":
-        code = str(payload.get("CODE")) if isinstance(payload, dict) else ""
+    if not isinstance(payload, dict):
+        raise AccessError(502, "provider_response_rejected")
+    code = str(payload.get("CODE"))
+    message = payload.get("MESSAGE") if isinstance(payload.get("MESSAGE"), str) else ""
+    if code == "204":
+        # IndiaMART answers 204 both for "no leads" and for history that a new key cannot see yet.
+        if "available after" in message.lower():
+            raise HistoryNotReady(release_time(message))
+        return []
+    if code != "200" or payload.get("STATUS") != "SUCCESS":
+        if code == "400" and "365" in message:
+            raise AccessError(409, "provider_history_expired")
         raise AccessError(502, {"401": "provider_credentials_rejected", "403": "provider_credentials_rejected",
-                               "429": "provider_rate_limited"}.get(code, "provider_response_rejected"))
+                               "429": "provider_rate_limited", "500": "provider_unavailable",
+                               "503": "provider_unavailable"}.get(code, "provider_response_rejected"))
     records = payload.get("RESPONSE")
     if payload.get("TOTAL_RECORDS") in (0, "0") and records in (None, [], ""):
         return []
-    if not isinstance(records, list) or len(records) > 10000:
+    if isinstance(records, list) and len(records) > MAX_RECORDS:
+        raise AccessError(502, "provider_payload_too_large")
+    if not isinstance(records, list):
         raise AccessError(502, "provider_payload_invalid")
     leads = []
     try:

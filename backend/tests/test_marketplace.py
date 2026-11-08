@@ -188,13 +188,22 @@ async def test_tradeindia_rate_limit_403_is_not_a_rejected_key():
     from datetime import datetime, timedelta, timezone
     from app.modules.marketplace.tradeindia import fetch_leads
 
-    body = {"status": "error", "message": "Rate limit exceed. Try After 15 minutes : A maximum of 5 requests is allowed every 5 minutes."}
+    body = {
+        "status": "error",
+        "message": "Rate limit exceed. Try After 15 minutes : A maximum of 5 requests is allowed every 5 minutes.",
+    }
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(lambda request: httpx.Response(403, json=body))
     ) as client:
         start = datetime(2026, 11, 7, 5, 0, tzinfo=timezone.utc)
         with pytest.raises(AccessError) as failure:
-            await fetch_leads(client, {"user_id": "1", "profile_id": "2"}, "fixture-api-key", start, start + timedelta(minutes=5))
+            await fetch_leads(
+                client,
+                {"user_id": "1", "profile_id": "2"},
+                "fixture-api-key",
+                start,
+                start + timedelta(minutes=5),
+            )
     assert failure.value.code == "provider_rate_limited"
 
 
@@ -739,7 +748,8 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
             async with tenant_transaction(engine, org) as connection:
                 await connection.execute(
                     text(
-                        "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute' WHERE org_id=:org"
+                        "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',"
+                        "next_live_at=now()-interval '1 minute' WHERE org_id=:org"
                     ),
                     {"org": org},
                 )
@@ -807,3 +817,357 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
     ]
     assert len(filtered) == 1 and filtered[0]["id"] == lead["id"]
     assert client.get(f"/api/v1/leads?integration_id={uuid4()}").json()["data"] == []
+
+
+def test_indiamart_204_variants_and_documented_errors():
+    from datetime import datetime, timezone
+    from app.modules.marketplace.indiamart import HistoryNotReady, normalize_response
+
+    assert (
+        normalize_response(
+            {
+                "CODE": 204,
+                "STATUS": "FAILURE",
+                "MESSAGE": "There are no leads in the given time duration.",
+                "TOTAL_RECORDS": 0,
+                "RESPONSE": [],
+            }
+        )
+        == []
+    )
+    with pytest.raises(HistoryNotReady) as pending:
+        normalize_response(
+            {
+                "CODE": 204,
+                "STATUS": "FAILURE",
+                "MESSAGE": "Leads before 25-02-2022 12:57:54 will be available after 24 hours from the Pull API Key generation time.",
+            }
+        )
+    assert pending.value.code == "provider_history_not_ready"
+    assert pending.value.until == datetime(2022, 2, 26, 7, 27, 54, tzinfo=timezone.utc)
+    for payload, code in [
+        (
+            {"CODE": 400, "STATUS": "FAILURE", "MESSAGE": "You can fetch the data for the last 365 days only."},
+            "provider_history_expired",
+        ),
+        ({"CODE": 500, "STATUS": "FAILURE", "MESSAGE": "Some Error Occured"}, "provider_unavailable"),
+        ({"CODE": 429, "STATUS": "FAILURE", "MESSAGE": "Too Many Requests"}, "provider_rate_limited"),
+        ({"CODE": 400, "STATUS": "FAILURE", "MESSAGE": "Please enter both dates"}, "provider_response_rejected"),
+    ]:
+        with pytest.raises(AccessError) as failure:
+            normalize_response(payload)
+        assert failure.value.code == code
+    with pytest.raises(AccessError) as failure:
+        normalize_response(
+            {"CODE": 200, "STATUS": "SUCCESS", "TOTAL_RECORDS": 10001, "RESPONSE": [{}] * 10001}
+        )
+    assert failure.value.code == "provider_payload_too_large"
+
+
+def test_history_windows_cover_range_newest_first_within_provider_limits():
+    from datetime import datetime, timedelta, timezone
+    from app.modules.marketplace.schedule import IST, history_floor, plan_windows, split_window
+
+    now = datetime(2026, 11, 8, 6, 0, tzinfo=timezone.utc)
+    windows = plan_windows("indiamart", history_floor("indiamart", now), now)
+    assert len(windows) == 53
+    assert windows[0][1] == now and windows[-1][0] == history_floor("indiamart", now)
+    assert all(end - start <= timedelta(days=7) for start, end in windows)
+    assert all(windows[i][0] == windows[i + 1][1] for i in range(len(windows) - 1))
+    trade = plan_windows("tradeindia", history_floor("tradeindia", now), now)
+    assert len(trade) == 365
+    for start, end in trade:
+        assert start.astimezone(IST).time() == end.astimezone(IST).time() == datetime.min.time()
+        assert end - start == timedelta(days=1)
+    assert trade[-1][0] >= history_floor("tradeindia", now)
+    halves = split_window("indiamart", *windows[0])
+    assert halves and halves[0][1] == windows[0][1] and halves[1][0] == windows[0][0]
+    assert halves[0][0] == halves[1][1]
+    assert split_window("indiamart", now - timedelta(minutes=90), now) is None
+    day_halves = split_window("tradeindia", trade[3][0], trade[0][1])
+    assert day_halves and day_halves[0][0] == trade[1][0]
+    assert split_window("tradeindia", *trade[0]) is None
+
+
+def test_live_window_hands_long_gaps_to_history_and_never_crosses_midnight_for_tradeindia():
+    from datetime import datetime, timedelta, timezone
+    from app.modules.marketplace.schedule import ist_midnight, live_window
+
+    now = datetime(2026, 11, 8, 6, 0, tzinfo=timezone.utc)
+    recent = now - timedelta(minutes=15)
+    assert live_window("indiamart", recent, now) == (recent - timedelta(minutes=5), now, None)
+    old = now - timedelta(days=20)
+    start, end, gap = live_window("indiamart", old, now)
+    assert (start, end) == (now - timedelta(days=7), now)
+    assert gap == (old - timedelta(minutes=5), now - timedelta(days=7) + timedelta(minutes=5))
+    today = ist_midnight(datetime(2026, 11, 8).date())
+    assert live_window("tradeindia", recent, now) == (today, now, None)
+    yesterday_tail = today - timedelta(minutes=3)
+    assert live_window("tradeindia", yesterday_tail, now) == (today - timedelta(days=1), today, None)
+    assert live_window("tradeindia", today, now) == (today, now, None)
+    start, end, gap = live_window("tradeindia", old, now)
+    assert (start, end) == (today, now) and gap == (ist_midnight(datetime(2026, 10, 19).date()), today)
+
+
+@pytest.mark.parametrize(
+    "interval,slots", [(300, 0), (600, 1), (900, 2), (1200, 3), (1800, 5), (3600, 10)]
+)
+def test_import_slots_fit_between_live_syncs(interval, slots):
+    from app.modules.marketplace.schedule import backfill_slots_per_cycle
+
+    assert backfill_slots_per_cycle("indiamart", interval) == slots
+
+
+def test_schedule_status_explains_every_hold():
+    from datetime import datetime, timedelta, timezone
+    from app.modules.marketplace.schedule import history_status, live_status
+
+    now = datetime(2026, 11, 8, 6, 0, tzinfo=timezone.utc)
+    base = {
+        "provider_code": "indiamart",
+        "status": "active",
+        "next_allowed_at": now - timedelta(minutes=1),
+        "next_live_at": now + timedelta(minutes=10),
+        "hold_reason": None,
+        "hold_until": None,
+        "last_request_at": now - timedelta(minutes=5),
+        "last_run_state": "completed",
+        "sync_interval_seconds": 900,
+        "verified_version": 1,
+        "credential_version": 1,
+    }
+    assert live_status(base, None, True, now)["state"] == "scheduled"
+    assert live_status(base, None, False, now)["reason"] == "worker_offline"
+    held = {**base, "hold_reason": "provider_cooldown", "hold_until": now + timedelta(minutes=15)}
+    assert live_status(held, None, True, now)["reason"] == "provider_cooldown"
+    due = {**base, "next_live_at": now, "next_allowed_at": now + timedelta(minutes=3)}
+    assert live_status(due, None, True, now)["reason"] == "waiting_key_slot"
+    assert (
+        live_status(base, now + timedelta(minutes=4), True, now)["reason"]
+        == "shared_key_slot"
+    )
+    paused = {**base, "status": "paused", "last_request_at": now - timedelta(days=6)}
+    expiry = live_status(paused, None, True, now)
+    assert expiry["reason"] == "key_expiry_risk"
+    assert expiry["until"] == now + timedelta(days=1)
+    backfill = {
+        "id": uuid4(),
+        "kind": "import",
+        "state": "active",
+        "range_start": now - timedelta(days=365),
+        "range_end": now,
+        "hold_reason": "history_not_ready",
+        "hold_until": now + timedelta(hours=20),
+        "fetched_count": 0,
+        "accepted_count": 0,
+        "created_at": now,
+        "finished_at": None,
+        "windows_total": 53,
+        "windows_done": 0,
+        "windows_failed": 0,
+        "windows_pending": 53,
+        "windows_running": 0,
+    }
+    history = history_status(base, backfill, True, now)
+    assert history["reason"] == "history_not_ready" and history["eta"] > history["until"]
+    assert (
+        history_status({**base, "sync_interval_seconds": 300}, backfill, True, now)["reason"]
+        == "import_paused_interval_5min"
+    )
+    assert (
+        history_status({**base, "status": "paused"}, backfill, True, now)["reason"]
+        == "import_paused_account_paused"
+    )
+    assert (
+        history_status({**base, "verified_version": None}, backfill, True, now)["reason"]
+        == "import_paused_needs_test"
+    )
+    gap = {**backfill, "kind": "gap", "hold_reason": None, "hold_until": None}
+    assert history_status(base, gap, True, now)["reason"] == "gap_recovery"
+
+
+@pytest.mark.asyncio
+async def test_tradeindia_history_window_continues_on_next_slot():
+    import httpx
+    from datetime import datetime, timedelta, timezone
+    from app.modules.marketplace.tradeindia import MAX_PAGES, PAGE_SIZE, fetch_pages
+
+    pages = []
+
+    def respond(request):
+        page = int(request.url.params["page_no"])
+        pages.append(page)
+        assert request.url.params["from_date"] == "2026-11-01"
+        assert request.url.params["to_date"] == "2026-11-01"
+        count = PAGE_SIZE if page <= MAX_PAGES + 1 else 4
+        return httpx.Response(
+            200, json=[{"rfi_id": f"{page}-{i}", "generated": 1762410600} for i in range(count)]
+        )
+
+    start = datetime(2026, 10, 31, 18, 30, tzinfo=timezone.utc)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        leads, more = await fetch_pages(
+            client, {"user_id": "1", "profile_id": "2"}, "key", start, start + timedelta(days=1)
+        )
+        assert len(leads) == PAGE_SIZE * MAX_PAGES and more == MAX_PAGES + 1
+        leads, more = await fetch_pages(
+            client, {"user_id": "1", "profile_id": "2"}, "key", start, start + timedelta(days=1), more
+        )
+    assert more is None and len(leads) == PAGE_SIZE + 4
+    assert pages == list(range(1, MAX_PAGES + 3))
+    with pytest.raises(AccessError) as failure:
+        await fetch_pages(None, {"user_id": "1", "profile_id": "2"}, "key", start, start + timedelta(days=2))
+    assert failure.value.code == "provider_window_invalid"
+
+
+def run_worker(client, org: UUID, respond, prepare: str | None = None) -> bool:
+    import httpx
+    from cryptography.hazmat.primitives import serialization
+    from sqlalchemy import text
+    from app.core.database import create_database_engine, tenant_transaction
+    from app.modules.marketplace.worker import heartbeat, process_once
+
+    private = serialization.load_pem_private_key(
+        Path(os.environ["TEST_MARKETPLACE_PRIVATE_KEY_FILE"]).read_bytes(),
+        password=None,
+    )
+
+    async def work():
+        engine = create_database_engine(
+            Settings(database_url=os.environ["TEST_WORKER_DATABASE_URL"], app_environment="test")
+        )
+        try:
+            await heartbeat(engine)
+            async with tenant_transaction(engine, org) as connection:
+                if prepare:
+                    await connection.execute(text(prepare), {"org": org})
+                await connection.execute(
+                    text("UPDATE crm.marketplace_rate_limits SET next_allowed_at=now()-interval '1 minute'")
+                )
+            async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as transport:
+                return await process_once(engine, org, private, transport)
+        finally:
+            await engine.dispose()
+
+    return client.portal.call(work)
+
+
+def test_database_history_import_uses_free_slots_and_keeps_enquiry_time(marketplace_owner):
+    import httpx
+    from datetime import datetime, timezone
+
+    if not os.environ.get("TEST_WORKER_DATABASE_URL"):
+        pytest.skip("Requires provisioned crm_worker role")
+    client = marketplace_owner
+    org = UUID(client.get("/api/v1/auth/me").json()["organization_id"])
+    created = client.post(
+        "/api/v1/marketplace/accounts",
+        json={
+            "provider_code": "indiamart",
+            "name": "History account",
+            "config": {},
+            "credentials": {"crm_key": f"history-{uuid4()}"},
+            "sync_interval_seconds": 1200,
+            "import_history": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    account = created.json()
+    assert account["sync_interval_seconds"] == 1200
+    history = account["schedule_status"]["history"]
+    assert history["state"] == "active" and history["windows_total"] == 53
+    assert history["reason"] in ("import_paused_needs_test", "worker_offline")
+    path = f"/api/v1/marketplace/accounts/{account['id']}"
+    assert client.post(f"{path}/backfills", json={}).json()["code"] == "marketplace_backfill_active"
+    assert client.put(f"{path}/schedule", json={"sync_interval_seconds": 120}).status_code == 422
+    imported = {
+        "CODE": 200,
+        "STATUS": "SUCCESS",
+        "TOTAL_RECORDS": 1,
+        "RESPONSE": [
+            {
+                "UNIQUE_QUERY_ID": "history-lead",
+                "QUERY_TIME": "2026-03-01 09:15:00",
+                "SENDER_NAME": "Old enquiry",
+                "SENDER_MOBILE": "9876543210",
+            }
+        ],
+    }
+    empty = {"CODE": 204, "STATUS": "FAILURE", "MESSAGE": "There are no leads in the given time duration."}
+    due = "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',next_live_at=now()-interval '1 minute' WHERE org_id=:org"
+    assert client.post(f"{path}/test", json={"row_version": account["row_version"]}).status_code == 200
+    assert run_worker(client, org, lambda request: httpx.Response(200, json=empty), due)
+    account = client.get("/api/v1/marketplace/accounts").json()["data"][0]
+    assert account["verified_version"] == account["credential_version"]
+    assert client.post(f"{path}/activate", json={"row_version": account["row_version"]}).status_code == 200
+    assert run_worker(client, org, lambda request: httpx.Response(200, json=empty), due)
+    runs = client.get(f"{path}/runs").json()["data"]
+    assert runs[0]["kind"] == "sync" and runs[0]["state"] == "completed"
+    # Live sync is not due before the next slot, so the free slot goes to history.
+    free_slot = "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',next_live_at=now()+interval '15 minutes' WHERE org_id=:org"
+    assert run_worker(client, org, lambda request: httpx.Response(200, json=imported), free_slot)
+    run = client.get(f"{path}/runs").json()["data"][0]
+    assert run["kind"] == "backfill" and run["state"] == "completed", run
+    assert run["accepted_count"] == 1 and run["window_end"]
+    lead = client.get(f"/api/v1/leads?integration_id={account['id']}").json()["data"][0]
+    received = datetime.fromisoformat(lead["received_at"].replace("Z", "+00:00"))
+    assert received == datetime(2026, 3, 1, 3, 45, tzinfo=timezone.utc)
+    live_soon = "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',next_live_at=now()+interval '1 minute' WHERE org_id=:org"
+    assert not run_worker(client, org, lambda request: httpx.Response(200, json=imported), live_soon)
+    status = client.get("/api/v1/marketplace/accounts").json()["data"][0]["schedule_status"]
+    assert status["history"]["windows_done"] == 1 and status["history"]["windows_pending"] == 52
+    assert status["history"]["eta"]
+    backfill = status["history"]["id"]
+    windows = client.get(f"{path}/backfills/{backfill}/windows?limit=10").json()
+    assert windows["data"][0]["state"] == "completed" and windows["next_cursor"]
+    following = client.get(f"{path}/backfills/{backfill}/windows?limit=10&after={windows['next_cursor']}").json()
+    assert following["data"][0]["window_end"] == windows["data"][-1]["window_start"]
+    assert len(client.get(f"{path}/backfills").json()["data"]) == 1
+    scheduled = client.put(f"{path}/schedule", json={"sync_interval_seconds": 300})
+    assert scheduled.status_code == 200, scheduled.text
+    body = scheduled.json()
+    assert body["row_version"] == client.get("/api/v1/marketplace/accounts").json()["data"][0]["row_version"]
+    assert body["verified_version"] == body["credential_version"] and body["status"] == "active"
+    assert body["schedule_status"]["history"]["reason"] in ("import_paused_interval_5min", "worker_offline")
+    assert client.post(f"{path}/backfills/{backfill}/retry").json()["code"] == "marketplace_backfill_nothing_to_retry"
+    cancelled = client.post(f"{path}/backfills/{backfill}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    history = cancelled.json()["schedule_status"]["history"]
+    assert history["state"] == "cancelled" and history["reason"] == "import_cancelled_by_user"
+
+
+def test_database_long_pause_moves_missed_range_to_history(marketplace_owner):
+    import httpx
+    from datetime import datetime, timedelta
+    from app.modules.marketplace.schedule import IST
+
+    if not os.environ.get("TEST_WORKER_DATABASE_URL"):
+        pytest.skip("Requires provisioned crm_worker role")
+    client = marketplace_owner
+    org = UUID(client.get("/api/v1/auth/me").json()["organization_id"])
+    account = add_account(client, "Gap account", f"gap-{uuid4()}")
+    path = f"/api/v1/marketplace/accounts/{account['id']}"
+    empty = {"CODE": 204, "STATUS": "FAILURE", "MESSAGE": "There are no leads in the given time duration."}
+    seen = []
+
+    def respond(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json=empty)
+
+    due = "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',next_live_at=now()-interval '1 minute' WHERE org_id=:org"
+    assert client.post(f"{path}/test", json={"row_version": 1}).status_code == 200
+    assert run_worker(client, org, respond, due)
+    account = client.get("/api/v1/marketplace/accounts").json()["data"][0]
+    assert client.post(f"{path}/activate", json={"row_version": account["row_version"]}).status_code == 200
+    paused = due.replace(" WHERE", ",watermark=now()-interval '20 days' WHERE")
+    assert run_worker(client, org, respond, paused)
+    started = datetime.strptime(seen[-1]["start_time"], "%d-%b-%Y%H:%M:%S").replace(tzinfo=IST)
+    assert abs(datetime.now(IST) - timedelta(days=7) - started) < timedelta(minutes=10)
+    history = client.get("/api/v1/marketplace/accounts").json()["data"][0]["schedule_status"]["history"]
+    assert history["kind"] == "gap" and history["windows_total"] == 2
+    assert history["reason"] == "gap_recovery"
+    assert run_worker(client, org, respond, due)
+    started = datetime.strptime(seen[-1]["start_time"], "%d-%b-%Y%H:%M:%S").replace(tzinfo=IST)
+    assert datetime.now(IST) - started < timedelta(minutes=15)
+    history = client.get("/api/v1/marketplace/accounts").json()["data"][0]["schedule_status"]["history"]
+    assert history["windows_total"] == 2

@@ -34,7 +34,6 @@ if ($Action -eq 'Migrate') {
     $user = 'crm_migrator'
 }
 if ($Action -eq 'Worker') {
-    if (-not $OrganizationId) { throw 'Worker requires -OrganizationId from your signed-in account identity.' }
     $user = 'crm_worker'
 }
 $secretFile = Join-Path $root '.docker-secrets\postgres_password'
@@ -60,7 +59,9 @@ try {
             & $python -m alembic upgrade head
             if ($LASTEXITCODE -ne 0) { throw 'Migration failed; runtime grants were not applied.' }
         } else {
-            & $python -m app.modules.marketplace.worker --organization $OrganizationId --private-key (Join-Path $root '.docker-secrets\marketplace-private.pem')
+            $workerArguments = @('-m', 'app.modules.marketplace.worker', '--private-key', (Join-Path $root '.docker-secrets\marketplace-private.pem'))
+            if ($OrganizationId) { $workerArguments += @('--organization', $OrganizationId) }
+            & $python @workerArguments
             if ($LASTEXITCODE -ne 0) { throw 'Connector worker exited with an error.' }
         }
     } finally { Pop-Location }

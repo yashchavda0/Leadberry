@@ -3,23 +3,25 @@
 import { useState } from "react";
 import SelectionPicker from "@/components/SelectionPicker";
 import PermissionGroups from "@/components/PermissionGroups";
+import RolePermissionsView from "@/components/permissions/RolePermissionsView";
 import { useSession } from "@/components/Session";
 import { ErrorNotice, Field, Loading, Pagination } from "@/components/Ui";
 import { crm, errorMessage, type Permission, type Role, type Scope } from "@/lib/crm";
 import { usePaged, useResource } from "@/lib/hooks";
 
 export default function Roles({ permissionsOnly = false }: { permissionsOnly?: boolean }) {
-  const list = usePaged<Role>("/roles");
+  const list = usePaged<Role>(permissionsOnly ? null : "/roles");
   const catalog = useResource<{ data: Permission[] }>("/permissions");
   const { can } = useSession();
   const [editing, setEditing] = useState<Role | "new" | null>(null);
+  const [revision, setRevision] = useState(0);
   return <><div className="page-header"><div><h2>{permissionsOnly ? "Permissions" : "Roles"}</h2><p className="muted">{permissionsOnly ? "Edit a role's grouped permissions here. Individual overrides are saved in the Users tab." : "Reporting determines levels, not access. Level 1 is the highest."}</p></div>{!permissionsOnly && can("roles.manage") && <button className="btn btn-primary" onClick={() => setEditing("new")}>+ Create role</button>}</div>
     <div className="alert alert-info">Owners always have full access. For other members, active roles combine permissions, direct deny overrides win, and the visibility override replaces role scope.</div>
     <ErrorNotice error={list.error || catalog.error} />
-    {editing && catalog.data && <RoleEditor key={typeof editing === "string" ? "new" : editing.id} role={typeof editing === "string" ? undefined : editing} catalog={catalog.data.data} onDone={() => { setEditing(null); list.reload(); }} onCancel={() => setEditing(null)} />}
-    <div className="card">{list.loading ? <Loading /> : list.data?.data.length ? <div className="table-wrap"><table><thead><tr><th>Role</th><th>Type</th><th>Level</th><th>Report to</th><th>Scope</th><th>Permissions</th><th>Status</th><th>Actions</th></tr></thead><tbody>{list.data.data.map(role => <tr key={role.id}><td><strong>{role.name}</strong><div className="small muted">{role.description}</div></td><td>{role.role_type}</td><td>{role.level}</td><td>{role.reports_to_name || "None (top level)"}</td><td><span className="badge">{role.data_scope}</span></td><td>{role.permissions.length} grants</td><td>{role.is_active ? "Active" : "Inactive"}</td><td>{can("roles.manage") && <button className="btn role-action-icon" type="button" aria-label={permissionsOnly ? "Edit permissions" : "Edit"} title={`${permissionsOnly ? "Edit permissions" : "Edit role"}: ${role.name}`} onClick={() => setEditing(role)}>
+    {editing && catalog.data && <RoleEditor key={typeof editing === "string" ? "new" : editing.id} role={typeof editing === "string" ? undefined : editing} catalog={catalog.data.data} onDone={() => { setEditing(null); list.reload(); setRevision(value => value + 1); }} onCancel={() => setEditing(null)} />}
+    {permissionsOnly && (catalog.data ? <RolePermissionsView key={revision} catalog={catalog.data.data} onEdit={setEditing} /> : <Loading />)}    {!permissionsOnly && <div className="card">{list.loading ? <Loading /> : list.data?.data.length ? <div className="table-wrap"><table><thead><tr><th>Role</th><th>Type</th><th>Level</th><th>Report to</th><th>Scope</th><th>Permissions</th><th>Status</th><th>Actions</th></tr></thead><tbody>{list.data.data.map(role => <tr key={role.id}><td><strong>{role.name}</strong><div className="small muted">{role.description}</div></td><td>{role.role_type}</td><td>{role.level}</td><td>{role.reports_to_name || "None (top level)"}</td><td><span className="badge">{role.data_scope}</span></td><td>{role.permissions.length} grants</td><td>{role.is_active ? "Active" : "Inactive"}</td><td>{can("roles.manage") && <button className="btn role-action-icon" type="button" aria-label={permissionsOnly ? "Edit permissions" : "Edit"} title={`${permissionsOnly ? "Edit permissions" : "Edit role"}: ${role.name}`} onClick={() => setEditing(role)}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 20l4-1L21 6a2.8 2.8 0 0 0-4-4L4 15l-1 6Z" /></svg>
-    </button>}</td></tr>)}</tbody></table></div> : <div className="empty-state"><h3>No custom roles yet</h3><p className="muted">Create a role in the Roles tab before inviting your team.</p></div>}<Pagination page={list.page} previous={list.previous} next={list.next} hasPrevious={list.hasPrevious} hasNext={Boolean(list.data?.next_cursor)} loading={list.loading} /></div>
+    </button>}</td></tr>)}</tbody></table></div> : <div className="empty-state"><h3>No custom roles yet</h3><p className="muted">Create a role in the Roles tab before inviting your team.</p></div>}<Pagination page={list.page} previous={list.previous} next={list.next} hasPrevious={list.hasPrevious} hasNext={Boolean(list.data?.next_cursor)} loading={list.loading} /></div>}
   </>;
 }
 function RoleEditor({ role, catalog, onDone, onCancel }: { role?: Role; catalog: Permission[]; onDone: () => void; onCancel: () => void }) {

@@ -4,23 +4,23 @@ Docker runs **PostgreSQL and Redis only**. The backend and frontend run on the h
 
 ## Tech stack
 
-| Part | Technology | Location |
-|---|---|---|
-| Backend API | FastAPI, SQLAlchemy, Alembic (Python 3.13) | [backend/](../backend/) |
-| Frontend | Next.js (npm) | [frontend/](../frontend/) |
-| Database | PostgreSQL 17 | [compose.yaml](../compose.yaml) |
-| Cache / queue | Redis 7 (provisioned, not used yet) | [compose.yaml](../compose.yaml) |
-| Infra | Docker Desktop (Linux containers) | [compose.yaml](../compose.yaml) |
-| Initial DB setup | Role init script | [docker/postgres/initialize.sh](../docker/postgres/initialize.sh) |
+| Part             | Technology                                 | Location                                                          |
+| ---------------- | ------------------------------------------ | ----------------------------------------------------------------- |
+| Backend API      | FastAPI, SQLAlchemy, Alembic (Python 3.13) | [backend/](../backend/)                                           |
+| Frontend         | Next.js (npm)                              | [frontend/](../frontend/)                                         |
+| Database         | PostgreSQL 17                              | [compose.yaml](../compose.yaml)                                   |
+| Cache / queue    | Redis 7 (provisioned, not used yet)        | [compose.yaml](../compose.yaml)                                   |
+| Infra            | Docker Desktop (Linux containers)          | [compose.yaml](../compose.yaml)                                   |
+| Initial DB setup | Role init script                           | [docker/postgres/initialize.sh](../docker/postgres/initialize.sh) |
 
 ## Ports and connections
 
-| Service | Address | Database / user | Password |
-|---|---|---|---|
-| PostgreSQL | `127.0.0.1:55432` | database `leadberry`; users `crm_migrator`, `crm_api`, `crm_auth`, `crm_worker` | `.docker-secrets/postgres_password` (shared by all users) |
-| Redis | `127.0.0.1:6379` | no username | `.docker-secrets/redis_password` |
-| Backend API | `http://localhost:8000` | docs at `/api/v1/docs` | none |
-| Frontend | `http://localhost:3000` | | none |
+| Service     | Address                 | Database / user                                                                 | Password                                                  |
+| ----------- | ----------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| PostgreSQL  | `127.0.0.1:55432`       | database `leadberry`; users `crm_migrator`, `crm_api`, `crm_auth`, `crm_worker` | `.docker-secrets/postgres_password` (shared by all users) |
+| Redis       | `127.0.0.1:6379`        | no username                                                                     | `.docker-secrets/redis_password`                          |
+| Backend API | `http://localhost:8000` | docs at `/api/v1/docs`                                                          | none                                                      |
+| Frontend    | `http://localhost:3000` |                                                                                 | none                                                      |
 
 `crm_migrator` runs migrations only. The API uses `crm_api`.
 
@@ -50,6 +50,9 @@ Set-Location ..
 Set-Location .\frontend
 npm.cmd ci
 Set-Location ..
+
+# Marketplace credential keys (once; refuses to overwrite existing keys)
+backend\.venv\Scripts\python.exe scripts\Invoke-LocalBackend.py keys
 ```
 
 ## Start everything (end to end)
@@ -69,8 +72,12 @@ Set-Location .\backend
 .\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --loop app.core.event_loop:selector_event_loop --reload
 Set-Location ..
 
-# 4. Marketplace worker (use the organization UUID from your signed-in account)
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-LocalBackend.ps1 -Action Worker -OrganizationId <organization-uuid>
+# 4. Marketplace connector worker (keep it running; serves every organization)
+#    Tests and lead syncs stay "queued" until this is running.
+backend\.venv\Scripts\python.exe scripts\Invoke-LocalBackend.py worker
+#    PowerShell alternative:
+#    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-LocalBackend.ps1 -Action Worker
+#    Optional: --organization <uuid> (or -OrganizationId) limits it to one organization; --once runs a single pass.
 
 # 5. Frontend on http://localhost:3000
 Set-Location .\frontend
@@ -107,4 +114,5 @@ Use `docker compose down -v` only when you want to delete all local data.
 - **Audit trail (database):** `docker compose exec postgres psql -U postgres -d leadberry -c "SELECT action, entity_type, occurred_at FROM crm.audit_logs ORDER BY occurred_at DESC LIMIT 20;"`
 - **Infra logs:** `docker compose logs --tail 100 postgres redis`
 - **Database shell:** `docker compose exec postgres psql -U postgres -d leadberry`
+- **Marketplace test/sync stays `queued`:** start the worker (step 4). The Marketplace page shows **Connector running/offline**. If you pass `--organization`, it must be the organization that owns the connection. IndiaMART also allows one request per key every 5 minutes, so a sync right after a test waits up to 5 minutes. Check jobs with `docker compose exec postgres psql -U postgres -d leadberry -c "SELECT kind, state, fetched_count, accepted_count, safe_error_code, created_at FROM crm.marketplace_sync_runs ORDER BY created_at DESC LIMIT 10;"`
 - **Tests:** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-LocalBackend.ps1 -Action Test`

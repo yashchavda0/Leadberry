@@ -11,7 +11,8 @@ from ..identity.service import AccessError
 IST = ZoneInfo("Asia/Kolkata")
 ENDPOINT = "https://www.tradeindia.com/utils/my_inquiry.html"
 PAGE_SIZE = 100
-MAX_PAGES = 50
+# TradeIndia allows 5 requests per 5 minutes per key; one run never exceeds that.
+MAX_PAGES = 5
 TAG = re.compile(r"<[^>]*>")
 
 
@@ -55,7 +56,9 @@ async def _get_page(client: httpx.AsyncClient, params: dict) -> list:
     try:
         async with client.stream("GET", ENDPOINT, params=params) as response:
             if response.status_code in (401, 403):
-                raise AccessError(502, "provider_credentials_rejected")
+                # TradeIndia reports quota exhaustion as 403 with a "Rate limit exceed" message.
+                body = (await response.aread())[:2048].decode("utf-8", "replace").lower()
+                raise AccessError(502, "provider_rate_limited" if "rate limit" in body else "provider_credentials_rejected")
             if response.status_code == 429:
                 raise AccessError(502, "provider_rate_limited")
             if response.status_code != 200:

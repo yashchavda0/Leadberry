@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 from .settings import Settings
 
-SCHEMA_REVISION = "0008_lead_workflow"
+SCHEMA_REVISION = "0009_marketplace_worker"
 
 
 def create_database_engine(settings: Settings) -> AsyncEngine:

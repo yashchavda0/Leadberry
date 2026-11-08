@@ -27,18 +27,18 @@ Separate subscriptions and provider entitlements remain the account owner's resp
 
 ## Provider Contracts
 
-| Provider | Authentication / delivery | Current gate |
-|---|---|---|
-| IndiaMART | API key and a CRM-local Form name; key in server-only pull query | Development adapter; validate entitlement and sanitized real success/error fixtures before production |
-| TradeIndia | User ID, Profile ID, API key; GET `my_inquiry.html` with `from_date`/`to_date` (IST dates), `limit`, `page_no` | Pull adapter; keep the key server-only and rotate any key shared in chat or screenshots. Test connection before Activate |
-| Meta Lead Ads | Page OAuth permissions; signed leadgen event followed by lead retrieval | OAuth, app review and webhook implementation pending; no generic API-key field |
-| Shopify | Store OAuth, scoped GraphQL retrieval and raw-body HMAC webhooks | App/permissions and adapter pending; customers and orders must become separate leads |
-| Google Forms | Authorized installable Apps Script submission bridge | Scoped intake token and stable response-ID implementation pending |
-| Website/API | Our versioned scoped machine-key API | Intake/key-issue/revocation implementation pending |
-| Custom forms | Authenticated server intake; consent and abuse controls | Intake implementation pending; no public-browser machine keys |
-| JustDial | Provider-configured posting URL described by Cronberry | Payload, sender authentication, stable IDs and ACK/retry contract required |
-| Sulekha, 99acres, MagicBricks | Not verified | Provider documentation, permitted access and fixtures required |
-| IVR / MyTelly | Vendor-specific call events; MyTelly describes JSON posting | Vendor identity, source call IDs, authentication and ACK/retry contract required |
+| Provider                      | Authentication / delivery                                                                                      | Current gate                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| IndiaMART                     | API key and a CRM-local Form name; key in server-only pull query                                               | Development adapter; validate entitlement and sanitized real success/error fixtures before production                    |
+| TradeIndia                    | User ID, Profile ID, API key; GET `my_inquiry.html` with `from_date`/`to_date` (IST dates), `limit`, `page_no` | Pull adapter; keep the key server-only and rotate any key shared in chat or screenshots. Test connection before Activate |
+| Meta Lead Ads                 | Page OAuth permissions; signed leadgen event followed by lead retrieval                                        | OAuth, app review and webhook implementation pending; no generic API-key field                                           |
+| Shopify                       | Store OAuth, scoped GraphQL retrieval and raw-body HMAC webhooks                                               | App/permissions and adapter pending; customers and orders must become separate leads                                     |
+| Google Forms                  | Authorized installable Apps Script submission bridge                                                           | Scoped intake token and stable response-ID implementation pending                                                        |
+| Website/API                   | Our versioned scoped machine-key API                                                                           | Intake/key-issue/revocation implementation pending                                                                       |
+| Custom forms                  | Authenticated server intake; consent and abuse controls                                                        | Intake implementation pending; no public-browser machine keys                                                            |
+| JustDial                      | Provider-configured posting URL described by Cronberry                                                         | Payload, sender authentication, stable IDs and ACK/retry contract required                                               |
+| Sulekha, 99acres, MagicBricks | Not verified                                                                                                   | Provider documentation, permitted access and fixtures required                                                           |
+| IVR / MyTelly                 | Vendor-specific call events; MyTelly describes JSON posting                                                    | Vendor identity, source call IDs, authentication and ACK/retry contract required                                         |
 
 Unsupported providers/actions are not enabled by marketing descriptions. No OAuth
 provider passwords, Cronberry login credentials, Firebase settings, or static
@@ -69,10 +69,9 @@ seven-day windows, never silently skipping backlog. Data older than 365 days
 requires an explicit recovery decision. Provider documentation states keys expire
 after seven unused days or regeneration; reconnect/rotate then test again.
 
-Leads are attributed to the configuring member. They are assigned to the connection's
-default assignee when one is set (only members with `leads.assign` are eligible; the
-assignee is re-checked on every sync, so an assignee who loses the permission gets
-unassigned leads). Without a default assignee, leads stay unassigned and are visible to every user with lead access.
+Leads are attributed to the configuring member and arrive unassigned in the default
+lead status, visible to every user with lead access. Connections no longer have a
+default assignee; saving a connection clears any legacy assignee.
 Retries preserve manually edited lead fields rather than overwriting them.
 The creator must remain active and retain `marketplace.manage`; otherwise work
 is cancelled/not claimed. Custom mapping/assignment editors, arbitrary historical
@@ -112,18 +111,41 @@ The development backend can load the generated public key from `.docker-secrets`
 without another API server or an environment change. `MARKETPLACE_PUBLIC_KEY_FILE`
 remains available for an explicit path; test/production do not use the development fallback.
 
-Open Marketplace, save the account and request **Test connection**. In another
-terminal start one worker for that verified organization identity:
+Open Marketplace and add an account; saving automatically queues a connection test.
+The connector worker must be running for tests and syncs to leave `queued`. The
+Marketplace page shows **Connector running/offline** from the worker heartbeat.
+
+`Invoke-LocalBackend.py run` starts the API and the worker together (separate process
+and `crm_worker` database role; pass `--no-worker` to skip). When the API is started
+with uvicorn directly, run the worker in another terminal:
 
 ```powershell
-.\backend\.venv\Scripts\python.exe .\scripts\Invoke-LocalBackend.py worker --organization ORGANIZATION-UUID
+.\backend\.venv\Scripts\python.exe .\scripts\Invoke-LocalBackend.py worker
 ```
 
-Use the `organization_id` from authenticated `GET /api/v1/auth/me`, not a public
-lead payload. The worker never discovers arbitrary tenant lead data. Refresh
-connection history, then activate after a successful test. Tests/syncs remain
-queued until a worker and the shared rate allowance are available. `--once` is
-available for a single worker pass; do not treat it as an always-running service.
+Without `--organization` the worker serves every organization (it reads only
+organization IDs from `crm.organization_directory`; tenant data stays behind RLS).
+`--organization UUID` limits it to one tenant and `--once` runs a single pass.
+Activate after a successful test; active connections sync automatically
+(IndiaMART and TradeIndia every five minutes; the same spacing applies
+between any two runs with one key, including tests). TradeIndia allows 5 requests
+per 5 minutes and answers excess calls with HTTP 403 "Rate limit exceed", blocking
+the key for 15 minutes: a run uses at most 5 pages, and a rate-limit response is
+recorded as `provider_rate_limited`, keeps the connection verified/active and
+pauses that key for 15 minutes before retrying automatically. Rate limits,
+`provider_unavailable` and `provider_timeout` are transient; only rejected keys or
+invalid payloads move a connection to `error`.
+
+Queue guarantees: the worker only picks runs that may start now, so a throttled
+key never blocks other accounts; up to 8 runs execute concurrently; provider work
+is cut off after 5 minutes (`provider_timeout`) while the lease lasts 10 minutes,
+so an expired lease only means a crashed worker and the run is re-queued; any
+unexpected error fails the run (`connector_internal_error`) instead of stopping
+the worker; the worker waits for the database instead of exiting on startup.
+
+The API never returns stored keys. Connections show a masked hint (last four
+characters of keys of 12+ characters) saved at entry time. Repeated test/sync
+requests while a run is pending are ignored instead of failing.
 
 Production file-based encryption is intentionally disabled. A managed wrapping-key
 service, workload identity, key rotation, provider-authorized smoke tests and the

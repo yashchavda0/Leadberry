@@ -18,11 +18,21 @@ from app.modules.marketplace.crypto import generate_keys
 
 
 def database_url(role: str) -> str:
-    password = (ROOT / ".docker-secrets" / "postgres_password").read_text(encoding="utf-8").strip()
+    password = (
+        (ROOT / ".docker-secrets" / "postgres_password")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
     if not password:
         raise RuntimeError("Local database secret is empty")
-    return URL.create("postgresql+psycopg", username=role, password=password, host="127.0.0.1", port=55432,
-                      database="leadberry").render_as_string(hide_password=False)
+    return URL.create(
+        "postgresql+psycopg",
+        username=role,
+        password=password,
+        host="127.0.0.1",
+        port=55432,
+        database="leadberry",
+    ).render_as_string(hide_password=False)
 
 
 def main() -> None:
@@ -32,12 +42,22 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--frontend-port", type=int)
     parser.add_argument("--once", action="store_true")
+    parser.add_argument(
+        "--no-worker",
+        action="store_true",
+        help="run: do not start the marketplace connector worker",
+    )
     arguments = parser.parse_args()
     os.chdir(BACKEND)
     os.environ["APP_ENVIRONMENT"] = "development"
     os.environ.pop("AUTH_DATABASE_URL", None)
     if arguments.frontend_port is not None:
-        os.environ["ALLOWED_ORIGINS"] = json.dumps([f"http://localhost:{arguments.frontend_port}", f"http://127.0.0.1:{arguments.frontend_port}"])
+        os.environ["ALLOWED_ORIGINS"] = json.dumps(
+            [
+                f"http://localhost:{arguments.frontend_port}",
+                f"http://127.0.0.1:{arguments.frontend_port}",
+            ]
+        )
     if arguments.action == "keys":
         generate_keys(ROOT / ".docker-secrets")
         return
@@ -49,21 +69,63 @@ def main() -> None:
     if public_key.exists():
         os.environ["MARKETPLACE_PUBLIC_KEY_FILE"] = str(public_key)
     if arguments.action == "worker":
-        if arguments.organization is None:
-            parser.error("worker requires --organization")
-        os.environ["DATABASE_URL"] = database_url("crm_worker")
-        command = [sys.executable, "-m", "app.modules.marketplace.worker", "--organization", str(arguments.organization),
-                   "--private-key", str(ROOT / ".docker-secrets" / "marketplace-private.pem")]
-        if arguments.once:
-            command.append("--once")
-        subprocess.run(command, check=True)
+        subprocess.run(
+            worker_command(arguments.organization, arguments.once),
+            env=worker_environment(),
+            check=True,
+        )
         return
     os.environ["DATABASE_URL"] = database_url("crm_api")
     os.environ["AUTH_DATABASE_URL"] = database_url("crm_auth")
+    worker = None
+    if (
+        not arguments.no_worker
+        and (ROOT / ".docker-secrets" / "marketplace-private.pem").exists()
+    ):
+        # Separate process and DB role: the API process never loads the private key.
+        worker = subprocess.Popen(worker_command(None, False), env=worker_environment())
     import uvicorn
     from app.main import create_app
-    server = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1", port=arguments.port, access_log=False))
-    asyncio.run(server.serve(), loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None)
+
+    server = uvicorn.Server(
+        uvicorn.Config(
+            create_app(), host="127.0.0.1", port=arguments.port, access_log=False
+        )
+    )
+    try:
+        asyncio.run(
+            server.serve(),
+            loop_factory=asyncio.SelectorEventLoop if sys.platform == "win32" else None,
+        )
+    finally:
+        if worker is not None:
+            worker.terminate()
+            worker.wait(timeout=10)
+
+
+def worker_environment() -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in ("AUTH_DATABASE_URL", "MARKETPLACE_PUBLIC_KEY_FILE")
+    }
+    environment["DATABASE_URL"] = database_url("crm_worker")
+    return environment
+
+
+def worker_command(organization: UUID | None, once: bool) -> list[str]:
+    command = [
+        sys.executable,
+        "-m",
+        "app.modules.marketplace.worker",
+        "--private-key",
+        str(ROOT / ".docker-secrets" / "marketplace-private.pem"),
+    ]
+    if organization is not None:
+        command += ["--organization", str(organization)]
+    if once:
+        command.append("--once")
+    return command
 
 
 if __name__ == "__main__":

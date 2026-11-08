@@ -59,7 +59,6 @@ GROUPS = {
     "Dashboard": {"/dashboard": {"get"}},
     "Marketplace": {
         "/marketplace/providers": {"get"},
-        "/marketplace/assignees": {"get"},
         "/marketplace/accounts": {"get", "post"},
         "/marketplace/accounts/{account_id}": {"put"},
         "/marketplace/accounts/{account_id}/{action}": {"post"},

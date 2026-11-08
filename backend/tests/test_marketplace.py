@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import itertools
 import os
 import sys
 from pathlib import Path
@@ -181,6 +182,22 @@ async def test_tradeindia_http_failures_fail_closed(status):
     assert "fixture" not in failure.value.code
 
 
+@pytest.mark.asyncio
+async def test_tradeindia_rate_limit_403_is_not_a_rejected_key():
+    import httpx
+    from datetime import datetime, timedelta, timezone
+    from app.modules.marketplace.tradeindia import fetch_leads
+
+    body = {"status": "error", "message": "Rate limit exceed. Try After 15 minutes : A maximum of 5 requests is allowed every 5 minutes."}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(403, json=body))
+    ) as client:
+        start = datetime(2026, 11, 7, 5, 0, tzinfo=timezone.utc)
+        with pytest.raises(AccessError) as failure:
+            await fetch_leads(client, {"user_id": "1", "profile_id": "2"}, "fixture-api-key", start, start + timedelta(minutes=5))
+    assert failure.value.code == "provider_rate_limited"
+
+
 def test_encryption_is_bound_to_account_and_version(tmp_path):
     from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives import serialization
@@ -285,6 +302,10 @@ def test_credential_rotation_can_preserve_but_not_partially_replace_secrets():
         )
 
 
+# Onboarding is rate limited per client address, so each owner fixture gets its own.
+OWNER_ADDRESSES = itertools.count(20)
+
+
 @pytest.fixture
 def marketplace_owner():
     runtime, identity = os.environ.get("TEST_RUNTIME_DATABASE_URL"), os.environ.get(
@@ -302,7 +323,7 @@ def marketplace_owner():
             )
         ),
         backend_options=options,
-        client=("198.51.100.11", 50000),
+        client=(f"198.51.100.{next(OWNER_ADDRESSES)}", 50000),
     ) as client:
         response = client.post(
             "/api/v1/organizations/onboard",
@@ -385,13 +406,12 @@ def test_database_accounts_rotation_cardinality_and_tenant_isolation(marketplace
         },
     )
     assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "marketplace_credentials_in_use"
     trade = add_account(client, "Trade account", "trade-test-key", "tradeindia")
-    assert (
-        client.post(
-            f"/api/v1/marketplace/accounts/{trade['id']}/test", json={"row_version": 1}
-        ).json()["code"]
-        == "provider_adapter_unavailable"
+    tested = client.post(
+        f"/api/v1/marketplace/accounts/{trade['id']}/test", json={"row_version": 1}
     )
+    assert tested.status_code == 200, tested.text
     assert (
         client.post(
             "/api/v1/marketplace/accounts",
@@ -440,48 +460,48 @@ def test_database_accounts_rotation_cardinality_and_tenant_isolation(marketplace
         )
 
 
-def test_database_default_assignee_is_validated_and_editable(marketplace_owner):
+def test_database_repeated_test_is_idempotent_and_key_is_masked(marketplace_owner):
     client = marketplace_owner
-    me = client.get("/api/v1/auth/me").json()
-    created = client.post(
+    created = add_account(client, "Masked account", "abcdefghijklmnop-1234")
+    assert created["credential_hint"] == {"crm_key": "•" * 8 + "1234"}
+    assert "default_assignee_membership_id" not in created
+    for _ in range(2):
+        response = client.post(
+            f"/api/v1/marketplace/accounts/{created['id']}/test",
+            json={"row_version": created["row_version"]},
+        )
+        assert response.status_code == 200, response.text
+    runs = client.get(f"/api/v1/marketplace/accounts/{created['id']}/runs").json()[
+        "data"
+    ]
+    assert [run["state"] for run in runs] == ["queued"]
+    clash = client.post(
         "/api/v1/marketplace/accounts",
         json={
             "provider_code": "indiamart",
-            "name": "Assigned account",
-            "config": {"mobile": "9876543210"},
-            "credentials": {"crm_key": f"assignee-fixture-{uuid4()}"},
-            "default_assignee_membership_id": me["membership_id"],
+            "name": "masked ACCOUNT",
+            "config": {},
+            "credentials": {"crm_key": f"fixture-{uuid4()}"},
         },
     )
-    assert created.status_code == 201, created.text
-    assert created.json()["default_assignee_membership_id"] == me["membership_id"]
-    assert [
-        member["id"]
-        for member in client.get("/api/v1/marketplace/assignees").json()["data"]
-    ] == [me["membership_id"]]
-    unknown = client.put(
-        f"/api/v1/marketplace/accounts/{created.json()['id']}",
-        json={
-            "provider_code": "indiamart",
-            "name": "Assigned account",
-            "config": {"mobile": "9876543210"},
-            "default_assignee_membership_id": str(uuid4()),
-            "row_version": created.json()["row_version"],
-        },
+    assert (
+        clash.status_code == 409 and clash.json()["code"] == "marketplace_name_in_use"
     )
-    assert unknown.status_code == 422 and unknown.json()["code"] == "invalid_assignee"
-    cleared = client.put(
-        f"/api/v1/marketplace/accounts/{created.json()['id']}",
-        json={
-            "provider_code": "indiamart",
-            "name": "Assigned account",
-            "config": {"mobile": "9876543210"},
-            "default_assignee_membership_id": None,
-            "row_version": created.json()["row_version"],
-        },
+    assert (
+        client.post(
+            "/api/v1/marketplace/accounts",
+            json={
+                "provider_code": "indiamart",
+                "name": "Assigned",
+                "config": {},
+                "credentials": {"crm_key": f"fixture-{uuid4()}"},
+                "default_assignee_membership_id": str(uuid4()),
+            },
+        ).status_code
+        == 422
     )
-    assert cleared.status_code == 200, cleared.text
-    assert cleared.json()["default_assignee_membership_id"] is None
+    providers = client.get("/api/v1/marketplace/providers").json()
+    assert providers["worker_online"] in (True, False)
 
 
 def test_lead_status_custom_fields_round_robin_and_table_preferences(marketplace_owner):
@@ -491,7 +511,8 @@ def test_lead_status_custom_fields_round_robin_and_table_preferences(marketplace
     assert default_assigned.status_code == 201, default_assigned.text
     assert default_assigned.json()["assigned_membership_id"] == member_id
     unassigned = client.post(
-        "/api/v1/leads", json={"name": "Explicitly unassigned", "assigned_membership_id": None}
+        "/api/v1/leads",
+        json={"name": "Explicitly unassigned", "assigned_membership_id": None},
     )
     assert unassigned.status_code == 201, unassigned.text
     assert unassigned.json()["assigned_membership_id"] is None
@@ -681,7 +702,7 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
     from cryptography.hazmat.primitives import serialization
     from sqlalchemy import text
     from app.core.database import create_database_engine, tenant_transaction
-    from app.modules.marketplace.worker import process_once
+    from app.modules.marketplace.worker import heartbeat, organizations, process_once
 
     worker_url = os.environ.get("TEST_WORKER_DATABASE_URL")
     if not worker_url:
@@ -713,6 +734,8 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
             Settings(database_url=worker_url, app_environment="test")
         )
         try:
+            await heartbeat(engine)
+            assert org in await organizations(engine)
             async with tenant_transaction(engine, org) as connection:
                 await connection.execute(
                     text(
@@ -742,6 +765,7 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
         == 200
     )
     assert client.portal.call(work)
+    assert client.get("/api/v1/marketplace/providers").json()["worker_online"] is True
     assert client.get("/api/v1/leads").json()["data"] == []
     account = client.get("/api/v1/marketplace/accounts").json()["data"][0]
     activated = client.post(

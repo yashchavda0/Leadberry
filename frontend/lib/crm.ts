@@ -17,13 +17,23 @@ export type MarketplaceAccount = {
   name: string;
   status: "draft" | "active" | "paused" | "error" | "retired";
   config: Record<string, string>;
+  credential_hint: Record<string, string>;
   credential_version: number;
   verified_version: number | null;
   row_version: number;
   last_success_at: string | null;
   last_received_at: string | null;
   safe_error_code: string | null;
-  default_assignee_membership_id: string | null;
+  last_run_kind: "test" | "sync" | null;
+  last_run_state:
+    | "queued"
+    | "running"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | null;
+  last_run_error: string | null;
+  last_run_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -223,6 +233,49 @@ const messages: Record<string, string> = {
     "A role cannot report to itself or one of its descendants.",
   landing_page_not_allowed:
     "The selected landing page requires access from the user's active roles or direct permissions.",
+  marketplace_name_in_use: "Another connection already uses this name.",
+  marketplace_credentials_in_use:
+    "This API key is already connected in your organization.",
+  marketplace_version_conflict:
+    "This connection changed in the meantime. Refresh and try again.",
+  marketplace_test_required:
+    "Run a successful connection test before activating or syncing.",
+  marketplace_account_not_active:
+    "Activate this connection before syncing leads.",
+  marketplace_account_unavailable: "This connection is no longer available.",
+  provider_account_limit_unverified:
+    "Only one account of this provider can be connected for now.",
+  provider_adapter_unavailable: "This provider cannot be connected yet.",
+  invalid_provider_configuration: "Fill in every required provider field.",
+  invalid_provider_credentials: "Enter the API key for this provider.",
+  marketplace_key_unavailable:
+    "Secure credential storage is not configured on the server.",
+};
+
+export const marketplaceErrors: Record<string, string> = {
+  provider_credentials_rejected:
+    "The provider rejected the API key. Check or regenerate it, then save and test again.",
+  provider_rate_limited:
+    "The provider's request limit was reached (TradeIndia blocks the key for 15 minutes). The connector waits and retries.",
+  provider_unavailable:
+    "The provider could not be reached. Try the connection test again.",
+  provider_timeout:
+    "The provider took too long to respond. Try the connection test again.",
+  connector_internal_error:
+    "The connector hit an unexpected error. Try again; check the worker terminal if it repeats.",
+  provider_response_rejected:
+    "The provider refused the request. Confirm API access is enabled for this account.",
+  provider_payload_invalid: "The provider returned an unexpected response.",
+  provider_payload_too_large:
+    "The provider returned too much data in one window.",
+  provider_history_expired:
+    "The backlog is older than 365 days. Reconnect to start from today.",
+  marketplace_key_unavailable:
+    "The connector worker could not decrypt this key. Re-enter the API key.",
+  integration_actor_inactive:
+    "The member who created this connection lost marketplace access. Disconnect it and connect it again.",
+  integration_default_status_missing:
+    "Set a default lead status, then sync again.",
 };
 
 export class ApiError extends Error {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { crm, errorMessage, type Page } from "./crm";
 
-export function useResource<T>(path: string | null) {
+export function useResource<T>(path: string | null, keepData = false) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -11,7 +11,8 @@ export function useResource<T>(path: string | null) {
   const reload = useCallback(() => setRevision(value => value + 1), []);
   useEffect(() => {
     const controller = new AbortController();
-    setData(null); setError(""); setLoading(Boolean(path));
+    if (!keepData) setData(null);
+    setError(""); setLoading(Boolean(path));
     if (path) {
       crm<T>(path, { signal: controller.signal })
         .then(result => { if (!controller.signal.aborted) setData(result); })
@@ -19,7 +20,7 @@ export function useResource<T>(path: string | null) {
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }
     return () => controller.abort();
-  }, [path, revision]);
+  }, [path, revision, keepData]);
   return { data, error, loading, reload };
 }
 

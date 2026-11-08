@@ -353,7 +353,13 @@ async def create_status(body: StatusInput, request: Request, user: User):
                 "position": body.position,
             },
         )
-        await audit(connection, current.org_id, current.member_id, "lead_status.created", status_id)
+        await audit(
+            connection,
+            current.org_id,
+            current.member_id,
+            "lead_status.created",
+            status_id,
+        )
         return {"id": status_id, "status": "created"}
 
 
@@ -404,7 +410,13 @@ async def update_status(
                 "active": body.is_active,
             },
         )
-        await audit(connection, current.org_id, current.member_id, "lead_status.updated", status_id)
+        await audit(
+            connection,
+            current.org_id,
+            current.member_id,
+            "lead_status.updated",
+            status_id,
+        )
         return {"id": status_id, "status": "updated"}
 
 
@@ -424,7 +436,13 @@ async def update_status_rules(
         ):
             raise AccessError(404, "lead_status_not_found")
         await replace_status_rules(connection, current.org_id, status_id, body)
-        await audit(connection, current.org_id, current.member_id, "lead_status.rules_updated", status_id)
+        await audit(
+            connection,
+            current.org_id,
+            current.member_id,
+            "lead_status.rules_updated",
+            status_id,
+        )
         return {"id": status_id, "status": "updated"}
 
 
@@ -480,7 +498,13 @@ async def create_custom_field(body: CustomFieldCreate, request: Request, user: U
                 "active": body.is_active,
             },
         )
-        await audit(connection, current.org_id, current.member_id, "lead_custom_field.created", None)
+        await audit(
+            connection,
+            current.org_id,
+            current.member_id,
+            "lead_custom_field.created",
+            None,
+        )
         return {"field_key": body.field_key, "status": "created"}
 
 
@@ -537,7 +561,13 @@ async def update_custom_field(
                 "active": body.is_active,
             },
         )
-        await audit(connection, current.org_id, current.member_id, "lead_custom_field.updated", None)
+        await audit(
+            connection,
+            current.org_id,
+            current.member_id,
+            "lead_custom_field.updated",
+            None,
+        )
         return {"field_key": field_key, "status": "updated"}
 
 

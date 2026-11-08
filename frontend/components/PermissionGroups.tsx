@@ -23,13 +23,19 @@ export default function PermissionGroups({ catalog, selected, overrides, onSelec
       onOverride(next);
     }
   }
-  return <div className="permission-grid">{modules.map(module => {
+  const allGrantable = catalog.filter(grantable);
+  const everythingSelected = allGrantable.length > 0 && allGrantable.every(permission =>
+    onSelect ? selected?.includes(permission.code) : overrides?.[permission.code] === true);
+  const chosen = onSelect ? (selected || []).length : Object.keys(overrides || {}).length;
+  return <><div className="permission-toolbar"><span className="small muted">{chosen} of {catalog.length} {onSelect ? "selected" : "overridden"}</span>
+    <button className="permission-select-all" type="button" disabled={!allGrantable.length} onClick={() => bulk(catalog, !everythingSelected)}>{everythingSelected ? "Clear all pages" : "Select all pages"}</button></div>
+  <div className="permission-grid">{modules.map(module => {
     const group = catalog.filter(permission => permission.module === module);
     const selectable = group.filter(grantable);
     const allSelected = selectable.length > 0 && selectable.every(permission =>
       onSelect ? selected?.includes(permission.code) : overrides?.[permission.code] === true);
     return <fieldset key={module}><legend className="permission-group-heading"><span className="permission-group-title">{module.replaceAll("_", " ")}</span>
-      <span className="permission-group-actions"><button className="btn permission-group-action" type="button" disabled={!selectable.length} onClick={() => bulk(group, !allSelected)}>{allSelected ? "Clear" : "Select all"}</button></span>
+      <span className="permission-group-actions"><button className="permission-group-action" type="button" disabled={!selectable.length} onClick={() => bulk(group, !allSelected)}>{allSelected ? "Clear" : "Select all"}</button></span>
     </legend>
       {group.map(permission => onSelect ? <label className="check-row" key={permission.code}><input type="checkbox" aria-label={permission.code} checked={selected?.includes(permission.code) || false} disabled={!grantable(permission)} onChange={event => onSelect(event.target.checked ? [...(selected || []), permission.code] : (selected || []).filter(code => code !== permission.code))} /><span><code>{permission.code}</code>{permission.code === "leads.assign" && <span className="small muted"> (Assign / reassign leads)</span>}</span></label> :
         <label className="override-row" key={permission.code}><span><code>{permission.code}</code>{permission.code === "leads.assign" && <span className="small muted"> (Assign / reassign leads)</span>}</span><select className="select" aria-label={permission.code} value={overrides && permission.code in overrides ? overrides[permission.code] ? "allow" : "deny" : ""} onChange={event => {
@@ -38,5 +44,5 @@ export default function PermissionGroups({ catalog, selected, overrides, onSelec
           onOverride?.(next);
         }}><option value="">From roles</option><option value="allow" disabled={!grantable(permission)}>Allow</option><option value="deny">Deny</option></select></label>)}
     </fieldset>;
-  })}</div>;
+  })}</div></>;
 }

@@ -31,18 +31,26 @@ export function useResource<T>(path: string | null, keepData = false) {
   return { data, error, loading, reload };
 }
 
+export const PAGE_SIZE = 25;
+
 export function usePaged<T>(path: string | null) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [history, setHistory] = useState<(string | null)[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const resource = useResource<Page<T>>(
     path
-      ? `${path}${path.includes("?") ? "&" : "?"}limit=25${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`
+      ? `${path}${path.includes("?") ? "&" : "?"}limit=${PAGE_SIZE}${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`
       : null,
   );
   useEffect(() => {
     setCursor(null);
     setHistory([]);
+    setTotal(null);
   }, [path]);
+  // The API only counts on the first page, so remember it while paging.
+  useEffect(() => {
+    if (cursor === null && resource.data && typeof resource.data.total === "number") setTotal(resource.data.total);
+  }, [cursor, resource.data]);
   function next() {
     if (resource.data?.next_cursor) {
       setHistory((values) => [...values, cursor]);
@@ -61,5 +69,7 @@ export function usePaged<T>(path: string | null) {
     previous,
     hasPrevious: history.length > 0,
     page: history.length + 1,
+    total,
+    pageSize: PAGE_SIZE,
   };
 }

@@ -168,12 +168,28 @@ test("marketplace sync schedule and history import explain every hold", async ({
     created_at: at(-600),
     updated_at: at(-3),
     schedule_status: {
-      live: { state: "held", reason: "provider_cooldown", until: at(12), next_request_at: at(12) },
+      live: {
+        state: "held",
+        reason: "provider_cooldown",
+        until: at(12),
+        next_request_at: at(12),
+      },
       history: {
-        id: backfillId, state: "active", range_start: at(-525600), range_end: at(-600),
-        windows_total: 53, windows_done: 2, windows_failed: 0, windows_pending: 51,
-        fetched_count: 9, accepted_count: 7, created_at: at(-600), finished_at: null,
-        reason: "history_not_ready", until: at(600), eta: at(1000),
+        id: backfillId,
+        state: "active",
+        range_start: at(-525600),
+        range_end: at(-600),
+        windows_total: 53,
+        windows_done: 2,
+        windows_failed: 0,
+        windows_pending: 51,
+        fetched_count: 9,
+        accepted_count: 7,
+        created_at: at(-600),
+        finished_at: null,
+        reason: "history_not_ready",
+        until: at(600),
+        eta: at(1000),
       },
     },
   });
@@ -181,35 +197,100 @@ test("marketplace sync schedule and history import explain every hold", async ({
     const request = route.request();
     const path = new URL(request.url()).pathname.slice("/api/v1".length);
     const fulfill = (body: unknown, status = 200) =>
-      route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
     if (path === "/auth/me")
       return fulfill({
-        organization_id: randomUUID(), membership_id: randomUUID(), user_id: randomUUID(), is_owner: true,
-        permissions: ["marketplace.view", "marketplace.manage"], data_scope: "all", landing_page: "/marketplace",
+        organization_id: randomUUID(),
+        membership_id: randomUUID(),
+        user_id: randomUUID(),
+        is_owner: true,
+        permissions: ["marketplace.view", "marketplace.manage"],
+        data_scope: "all",
+        landing_page: "/marketplace",
       });
     if (path === "/organizations/me")
-      return fulfill({ id: randomUUID(), slug: "schedule-ui", name: "Schedule UI", timezone: "Asia/Kolkata", status: "active" });
+      return fulfill({
+        id: randomUUID(),
+        slug: "schedule-ui",
+        name: "Schedule UI",
+        timezone: "Asia/Kolkata",
+        status: "active",
+      });
     if (path === "/marketplace/providers")
       return fulfill({
-        data: [{
-          code: "indiamart", name: "IndiaMART", category: "marketplace", method: "CRM key / Pull API", setup: true,
-          adapter: true, multiple_accounts: true, documentation_url: null, note: "",
-          fields: [{ key: "crm_key", label: "API key", secret: true, required: true }],
-          allowed_intervals: [300, 600, 900, 1200, 1800, 3600], default_interval_seconds: 900, history_days: 365,
-        }],
-        credential_storage_ready: true, worker_online: true, worker_last_seen_at: at(0),
+        data: [
+          {
+            code: "indiamart",
+            name: "IndiaMART",
+            category: "marketplace",
+            method: "CRM key / Pull API",
+            setup: true,
+            adapter: true,
+            multiple_accounts: true,
+            documentation_url: null,
+            note: "",
+            fields: [
+              {
+                key: "crm_key",
+                label: "API key",
+                secret: true,
+                required: true,
+              },
+            ],
+            allowed_intervals: [300, 600, 900, 1200, 1800, 3600],
+            default_interval_seconds: 900,
+            history_days: 365,
+          },
+        ],
+        credential_storage_ready: true,
+        worker_online: true,
+        worker_last_seen_at: at(0),
       });
-    if (path === "/marketplace/accounts") return fulfill({ data: [account()], next_cursor: null });
+    if (path === "/marketplace/accounts")
+      return fulfill({ data: [account()], next_cursor: null });
     if (path === `/marketplace/accounts/${accountId}/schedule`) {
       scheduleBody = request.postDataJSON();
       interval = 1800;
       return fulfill(account());
     }
-    if (path === `/marketplace/accounts/${accountId}/backfills/${backfillId}/windows`)
+    if (
+      path ===
+      `/marketplace/accounts/${accountId}/backfills/${backfillId}/windows`
+    )
       return fulfill({
         data: [
-          { id: randomUUID(), window_start: at(-10680), window_end: at(-600), state: "completed", attempts: 0, next_attempt_at: at(-600), next_page: 1, hold_reason: null, safe_error_code: null, fetched_count: 9, accepted_count: 7, updated_at: at(-500) },
-          { id: randomUUID(), window_start: at(-20760), window_end: at(-10680), state: "pending", attempts: 0, next_attempt_at: at(600), next_page: 1, hold_reason: "history_not_ready", safe_error_code: "provider_history_not_ready", fetched_count: 0, accepted_count: 0, updated_at: at(-400) },
+          {
+            id: randomUUID(),
+            window_start: at(-10680),
+            window_end: at(-600),
+            state: "completed",
+            attempts: 0,
+            next_attempt_at: at(-600),
+            next_page: 1,
+            hold_reason: null,
+            safe_error_code: null,
+            fetched_count: 9,
+            accepted_count: 7,
+            updated_at: at(-500),
+          },
+          {
+            id: randomUUID(),
+            window_start: at(-20760),
+            window_end: at(-10680),
+            state: "pending",
+            attempts: 0,
+            next_attempt_at: at(600),
+            next_page: 1,
+            hold_reason: "history_not_ready",
+            safe_error_code: "provider_history_not_ready",
+            fetched_count: 0,
+            accepted_count: 0,
+            updated_at: at(-400),
+          },
         ],
         next_cursor: null,
       });
@@ -218,27 +299,49 @@ test("marketplace sync schedule and history import explain every hold", async ({
 
   await page.goto("/marketplace");
   await page.getByRole("tab", { name: /Connected accounts/ }).click();
-  const row = page.locator(".account-row").filter({ has: page.getByRole("heading", { name: "North sales" }) });
+  const row = page
+    .locator(".account-row")
+    .filter({ has: page.getByRole("heading", { name: "North sales" }) });
   await expect(row).toContainText("every 15 min");
-  await expect(row.locator('[data-reason="provider_cooldown"]')).toContainText("IndiaMART temporarily blocked this key");
-  await expect(row.locator('[data-reason="provider_cooldown"]')).toContainText(/in 1[12] min/);
-  await expect(row.locator('[data-reason="history_not_ready"]')).toContainText("24 hours after the key was generated");
-  await expect(row.getByRole("progressbar", { name: "History import progress" })).toHaveAttribute("aria-valuenow", "4");
-  await expect(row.getByRole("button", { name: "Import past leads for North sales" })).toBeDisabled();
+  await expect(row.locator('[data-reason="provider_cooldown"]')).toContainText(
+    "IndiaMART temporarily blocked this key",
+  );
+  await expect(row.locator('[data-reason="provider_cooldown"]')).toContainText(
+    /in 1[12] min/,
+  );
+  await expect(row.locator('[data-reason="history_not_ready"]')).toContainText(
+    "24 hours after the key was generated",
+  );
+  await expect(
+    row.getByRole("progressbar", { name: "History import progress" }),
+  ).toHaveAttribute("aria-valuenow", "4");
+  await expect(
+    row.getByRole("button", { name: "Import past leads for North sales" }),
+  ).toBeDisabled();
 
   await row.getByRole("button", { name: "Import details" }).click();
   const details = page.getByRole("dialog");
   await expect(details.getByText("Imported", { exact: true })).toBeVisible();
-  await expect(details.locator('[data-reason="history_not_ready"]')).toBeVisible();
-  await page.getByRole("button", { name: "Close history import details" }).click();
+  await expect(
+    details.locator('[data-reason="history_not_ready"]'),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Close history import details" })
+    .click();
 
-  await row.getByRole("button", { name: "Sync schedule for North sales" }).click();
+  await row
+    .getByRole("button", { name: "Sync schedule for North sales" })
+    .click();
   await page.getByLabel("Sync every").selectOption("300");
-  await expect(page.getByRole("dialog")).toContainText("history import pauses at this interval");
+  await expect(page.getByRole("dialog")).toContainText(
+    "history import pauses at this interval",
+  );
   await page.getByLabel("Sync every").selectOption("1800");
   await page.getByRole("button", { name: "Save schedule" }).click();
   expect(scheduleBody).toEqual({ sync_interval_seconds: 1800 });
-  await expect(page.getByText("North sales now syncs every 30 min.")).toBeVisible();
+  await expect(
+    page.getByText("North sales now syncs every 30 min."),
+  ).toBeVisible();
   await expect(row).toContainText("every 30 min");
 });
 
@@ -271,7 +374,7 @@ test("landing selection respects permission revocation and role-only management 
 
 test("lead table preferences and typed required fields work in the manual lead form", async ({
   page,
-}) => {
+}, testInfo) => {
   const memberId = randomUUID();
   const leadId = randomUUID();
   let columns = [
@@ -285,6 +388,14 @@ test("lead table preferences and typed required fields work in the manual lead f
     "source_record_id",
   ];
   let created: Record<string, unknown> | null = null;
+  let exportedQuery = "";
+  let archiveBody: unknown = null;
+  let statusChange: { status_id: string; note: string; next_follow_up_at?: string | null; row_version: number } | null = null;
+  let currentStatusId = "status-new";
+  let currentStatusName = "New";
+  let currentFollowUp: string | null = null;
+  let rowVersion = 1;
+  let statusHistory: { id: string; from_status: string; to_status: string; note: string; actor_name: string; created_at: string }[] = [];
   page.on("pageerror", (error) => {
     throw error;
   });
@@ -313,6 +424,7 @@ test("lead table preferences and typed required fields work in the manual lead f
           "leads.assign",
           "leads.archive",
           "leads.restore",
+          "leads.export",
           "leads.pii.view",
         ],
         data_scope: "all",
@@ -336,6 +448,20 @@ test("lead table preferences and typed required fields work in the manual lead f
             type: "new",
             is_default: true,
             required_fields: ["phone", "budget", "consent", "segment"],
+          },
+          {
+            id: "status-qualified",
+            name: "Qualified",
+            color: "#7c3aed",
+            type: "working",
+            required_fields: [],
+          },
+          {
+            id: "status-follow-up",
+            name: "Follow-up scheduled",
+            color: "#d97706",
+            type: "pending",
+            required_fields: ["next_follow_up_at"],
           },
         ],
         custom_fields: [
@@ -372,6 +498,42 @@ test("lead table preferences and typed required fields work in the manual lead f
         data: [{ id: memberId, display_name: "Owner" }],
         next_cursor: null,
       });
+    if (path === "/teams")
+      return fulfill({ data: [], next_cursor: null, total: 0 });
+    if (path === "/leads/export") {
+      exportedQuery = url.search;
+      return route.fulfill({
+        contentType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers: {
+          "Content-Disposition": "attachment; filename=filtered-leads.xlsx",
+        },
+        body: Buffer.from("PK-test-download"),
+      });
+    }
+    if (path === `/leads/${leadId}/archive`) {
+      archiveBody = request.postDataJSON();
+      return fulfill({ id: leadId });
+    }
+    if (path === `/leads/${leadId}/status-history` && method === "GET")
+      return fulfill({ data: statusHistory });
+    if (path === `/leads/${leadId}/status` && method === "POST") {
+      statusChange = request.postDataJSON();
+      const nextStatus = statusChange.status_id === "status-qualified" ? "Qualified" : statusChange.status_id === "status-follow-up" ? "Follow-up scheduled" : "New";
+      statusHistory = [...statusHistory, {
+        id: randomUUID(),
+        from_status: currentStatusName,
+        to_status: nextStatus,
+        note: statusChange.note,
+        actor_name: "Owner",
+        created_at: new Date().toISOString(),
+      }];
+      currentStatusId = statusChange.status_id;
+      currentStatusName = nextStatus;
+      currentFollowUp = statusChange.next_follow_up_at || null;
+      rowVersion += 1;
+      return fulfill({ id: leadId, row_version: rowVersion });
+    }
     if (path === "/lead-table-preferences" && method === "GET")
       return fulfill({ columns });
     if (path === "/lead-table-preferences" && method === "PUT") {
@@ -394,8 +556,8 @@ test("lead table preferences and typed required fields work in the manual lead f
             enquiry: "Quote request",
             source_provider: "manual",
             source_record_id: null,
-            status_id: "status-new",
-            status: "New",
+            status_id: currentStatusId,
+            status: currentStatusName,
             status_color: "#15803d",
             integration_id: null,
             source_account_name: null,
@@ -407,13 +569,14 @@ test("lead table preferences and typed required fields work in the manual lead f
             custom_fields: {},
             next_follow_up_at: null,
             archived_at: null,
-            row_version: 1,
+            row_version: rowVersion,
             received_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             pii_redacted: false,
           },
         ],
-        next_cursor: null,
+        next_cursor: url.searchParams.has("after") ? null : "lead-next",
+        total: 26,
       });
     if (path === "/leads" && method === "POST") {
       created = request.postDataJSON();
@@ -433,8 +596,8 @@ test("lead table preferences and typed required fields work in the manual lead f
         enquiry: "Quote request",
         source_provider: "manual",
         source_record_id: null,
-        status_id: "status-new",
-        status: "New",
+        status_id: currentStatusId,
+        status: currentStatusName,
         status_color: "#15803d",
         integration_id: null,
         source_account_name: null,
@@ -444,15 +607,39 @@ test("lead table preferences and typed required fields work in the manual lead f
         team_id: null,
         tags: [],
         custom_fields: { budget: 45.5, consent: false, segment: "Retail" },
-        next_follow_up_at: null,
+        next_follow_up_at: currentFollowUp,
         archived_at: null,
-        row_version: 1,
+        row_version: rowVersion,
         received_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         pii_redacted: false,
       });
     return fulfill({ code: "not_found" }, 404);
   });
+
+  await page.goto(`/leads/${leadId}`);
+  await expect(page.getByRole("heading", { name: "Manual lead", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "New status", exact: true }).click();
+  await page.getByRole("option", { name: "Follow-up scheduled", exact: true }).click();
+  await expect(page.getByLabel("Follow-up time")).toBeVisible();
+  await page.getByLabel("Follow-up time").fill("2026-11-12T10:30");
+  const expectedFollowUp = await page.locator("#lead-status-followup").evaluate((element: HTMLInputElement) => new Date(element.value).toISOString());
+  await page.locator("#lead-status-note").fill("Customer requested pricing.");
+  await page.getByRole("button", { name: "Update status", exact: true }).click();
+  await expect(page.getByText("Lead status updated.")).toBeVisible();
+  expect(statusChange).toMatchObject({
+    status_id: "status-follow-up",
+    note: "Customer requested pricing.",
+    next_follow_up_at: expectedFollowUp,
+    row_version: 1,
+  });
+  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await expect(page.getByText("Customer requested pricing.", { exact: true })).toBeVisible();
+  currentStatusId = "status-new";
+  currentStatusName = "New";
+  currentFollowUp = null;
+  rowVersion = 1;
+  statusHistory = [];
 
   await page.goto("/leads");
   await expect(
@@ -464,15 +651,105 @@ test("lead table preferences and typed required fields work in the manual lead f
   await expect(
     page.getByRole("button", { name: "Archive Example lead" }),
   ).toBeVisible();
+  await expect(page.getByLabel("Tag", { exact: true })).not.toBeVisible();
+  await page.getByLabel("Search", { exact: true }).fill("Example");
+  await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("status-new");
+  await page.getByRole("button", { name: "Assigned to", exact: true }).click();
+  await page.getByLabel("Search assigned to").fill("Owner");
+  await expect
+    .poll(() =>
+      page.getByRole("button", { name: "Owner", exact: true }).count(),
+    )
+    .toBe(1);
+  await page.getByRole("button", { name: "Owner", exact: true }).click();
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove Search filter" }),
+  ).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export to Excel" }).click();
+  const exported = await downloadPromise;
+  expect(exported.suggestedFilename()).toBe("filtered-leads.xlsx");
+  expect(new URLSearchParams(exportedQuery).get("q")).toBe("Example");
+  expect(new URLSearchParams(exportedQuery).get("status_id")).toBe(
+    "status-new",
+  );
+  expect(new URLSearchParams(exportedQuery).get("assignee")).toBe(memberId);
+  expect(new URLSearchParams(exportedQuery).has("limit")).toBe(false);
+  await page.getByRole("button", { name: "Remove Search filter" }).click();
+  await expect(page.getByLabel("Search", { exact: true })).toHaveValue("");
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await page.locator(".lead-advanced-filters > summary").click();
+  await page.getByLabel("Received from").fill("2026-11-08");
+  await page.getByLabel("Received through").fill("2026-11-01");
+  await page.getByRole("button", { name: "Apply filters" }).click();
+  expect(
+    await page
+      .getByLabel("Received through")
+      .evaluate((element: HTMLInputElement) => element.validity.valid),
+  ).toBe(false);
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await page.locator(".lead-advanced-filters > summary").click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.locator(".lead-index").first()).toHaveText("26");
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await expect(page.locator(".lead-index").first()).toHaveText("1");
+  await page.getByRole("button", { name: "Archive Example lead" }).click();
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await page.getByRole("button", { name: "Archive lead", exact: true }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  expect(archiveBody).toEqual({ row_version: 1 });
   await page.getByRole("button", { name: "Columns" }).click();
-  await page.getByLabel("Tags", { exact: true }).check();
+  await page
+    .getByRole("menuitemcheckbox", { name: "Tags", exact: true })
+    .click();
   await expect(page.getByRole("columnheader", { name: "Tags" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.reload();
   await expect(page.getByRole("columnheader", { name: "Tags" })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath("leads-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: testInfo.outputPath("leads-mobile.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBeTruthy();
 
-  await page.getByRole("link", { name: "+ New lead" }).click();
+  await page.getByRole("link", { name: "New lead", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Manual lead");
   await page.getByLabel("Company", { exact: true }).fill("Example Co");
+  await page.getByLabel("Phone", { exact: true }).fill("123456");
+  await page.getByLabel(/^Budget/).fill("45.5");
+  await page.getByLabel(/^Consent/).selectOption("false");
+  await page.getByLabel(/^Segment/).selectOption("Retail");
+  await page
+    .getByLabel("Tags", { exact: true })
+    .fill("Priority, Retail, Priority");
+  await page.screenshot({
+    path: testInfo.outputPath("lead-entry-mobile.png"),
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBeTruthy();
+  await page
+    .getByRole("button", { name: "Create & add another", exact: true })
+    .click();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue("");
+  expect(created).toMatchObject({
+    name: "Manual lead",
+    tags: ["Priority", "Retail"],
+  });
+  await page.getByLabel("Name", { exact: true }).fill("Manual lead");
   await page.getByLabel("Phone", { exact: true }).fill("123456");
   await page.getByLabel(/^Budget/).fill("45.5");
   await page.getByLabel(/^Consent/).selectOption("false");
@@ -741,6 +1018,16 @@ test("owner onboarding, roles, invitations, leads, restricted member and respons
     page.getByRole("heading", { name: "Browser pump enquiry" }),
   ).toBeVisible();
   const leadUrl = page.url();
+  const statusNote = "Customer requested a formal quote.";
+  await page.getByRole("combobox", { name: "New status", exact: true }).click();
+  await page.getByRole("option", { name: "Qualified", exact: true }).click();
+  await page.locator("#lead-status-note").fill(statusNote);
+  await page.getByRole("button", { name: "Update status", exact: true }).click();
+  await expect(page.getByText("Lead status updated.")).toBeVisible();
+  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await expect(page.getByText("Status changed: New to Qualified")).toBeVisible();
+  await expect(page.getByText(statusNote, { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Lead Details", exact: true }).click();
   await page.getByRole("button", { name: "Edit lead", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Updated browser lead");
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
@@ -762,8 +1049,16 @@ test("owner onboarding, roles, invitations, leads, restricted member and respons
   await expect(
     memberPage.getByText("private-buyer@example.com", { exact: true }),
   ).toHaveCount(0);
+  await memberPage.getByRole("tab", { name: "Timeline", exact: true }).click();
+  await expect(
+    memberPage.getByText("Note restricted by contact permission.", { exact: true }),
+  ).toBeVisible();
+  await expect(memberPage.getByText(statusNote, { exact: true })).toHaveCount(0);
   await expect(
     memberPage.getByRole("button", { name: "Edit lead", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    memberPage.getByRole("button", { name: "Update status", exact: true }),
   ).toHaveCount(0);
   await memberPage.goto("http://127.0.0.1:3012/roles");
   await expect(

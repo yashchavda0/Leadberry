@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from ...core.phone import normalize_phone
 from ..identity.service import AccessError
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -50,7 +51,7 @@ def normalize_response(payload) -> list[dict]:
                     "source_record_id": identity,
                     "name": name,
                     "company": text(record.get("sender_co"), 200),
-                    "phone": text(record.get("sender_mobile"), 100),
+                    "phone": normalize_phone(text(record.get("sender_mobile"), 100)),
                     "email": "",
                     "city": text(record.get("sender_city"), 200),
                     "state": text(record.get("sender_state"), 200),

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 from sqlalchemy import text
 
 from ..identity.dependencies import User
-from .queries import JOINS, access, fields, visibility
+from .queries import JOINS, access, fields, lead_payload, visibility
 
 router = APIRouter(prefix="/api/v1", tags=["Dashboard"])
 
@@ -29,7 +29,7 @@ async def dashboard(request: Request, user: User):
         ), parameters)).mappings().all()
         recent = []
         if "leads.view" in current.permissions:
-            recent = [dict(row) for row in (await connection.execute(text(
+            recent = [lead_payload(row) for row in (await connection.execute(text(
                 f"SELECT {fields(current)} {JOINS} WHERE {boundary} ORDER BY l.received_at DESC,l.id DESC LIMIT 5"
             ), parameters)).mappings()]
         return {**dict(totals), "statuses": [dict(row) for row in statuses],

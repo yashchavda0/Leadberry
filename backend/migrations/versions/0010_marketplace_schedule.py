@@ -92,8 +92,12 @@ def upgrade() -> None:
             WHERE a.org_id=crm.current_org_id() AND a.id=account
         $$
     """)
-    op.execute("REVOKE ALL ON FUNCTION crm.marketplace_key_available_at(uuid) FROM PUBLIC")
-    op.execute("GRANT EXECUTE ON FUNCTION crm.marketplace_key_available_at(uuid) TO crm_api")
+    op.execute(
+        "REVOKE ALL ON FUNCTION crm.marketplace_key_available_at(uuid) FROM PUBLIC"
+    )
+    op.execute(
+        "GRANT EXECUTE ON FUNCTION crm.marketplace_key_available_at(uuid) TO crm_api"
+    )
     op.execute(
         "GRANT SELECT(sync_interval_seconds,next_live_at,next_allowed_at,hold_reason,hold_until,last_request_at) "
         "ON crm.marketplace_accounts TO crm_api"
@@ -104,4 +108,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise RuntimeError("Destructive marketplace downgrade is disabled; use a reviewed forward migration.")
+    raise RuntimeError(
+        "Destructive marketplace downgrade is disabled; use a reviewed forward migration."
+    )

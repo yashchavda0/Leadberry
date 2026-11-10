@@ -29,7 +29,8 @@ async def memberships(request: Request, user: User, limit: int = Query(50, ge=1,
                  "GROUP BY m.org_id,m.id,u.email ORDER BY m.id LIMIT :limit"),
             {"org": user.org_id, "after": after, "limit": limit + 1},
         )).mappings().all()
-        return {"data": [dict(row) for row in rows[:limit]], "next_cursor": rows[limit - 1]["id"] if len(rows) > limit else None}
+        total = await connection.scalar(text("SELECT count(*) FROM crm.organization_memberships WHERE org_id=:org"), {"org": user.org_id}) if after is None else None
+        return {"data": [dict(row) for row in rows[:limit]], "next_cursor": rows[limit - 1]["id"] if len(rows) > limit else None, "total": total}
 
 
 @router.put("/memberships/{membership_id}")

@@ -2,16 +2,18 @@ import base64
 import binascii
 import json
 import math
-from datetime import date, datetime, timezone
-from uuid import UUID
+from datetime import datetime, timezone
+from typing import Annotated
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
 
 from ..identity.dependencies import User
 from ..identity.service import AccessError, Principal, audit
-from .queries import JOINS, access, fields, visibility
-from .schemas import LeadInput, LeadUpdate, VersionInput
+from .filters import LeadFilters, filter_conditions, lead_filters
+from .queries import JOINS, access, fields, lead_payload, visibility
+from .schemas import LeadInput, LeadStatusChange, LeadUpdate, VersionInput
 from .configuration import BUILTIN_FIELDS
 
 router = APIRouter(prefix="/api/v1", tags=["Leads"])
@@ -51,7 +53,7 @@ async def get_lead(connection, user: Principal, lead_id: UUID):
     )
     if row is None:
         raise AccessError(404, "lead_not_found")
-    return dict(row)
+    return lead_payload(row)
 
 
 async def validate_references(connection, user: Principal, body: LeadInput) -> UUID:
@@ -234,94 +236,22 @@ async def apply_status_rules(
 async def list_leads(
     request: Request,
     user: User,
+    filters: Annotated[LeadFilters, Depends(lead_filters)],
     limit: int = Query(25, ge=1, le=100),
     after: str | None = Query(None, max_length=200),
-    q: str = Query("", max_length=200),
-    status_id: UUID | None = None,
-    source: str = Query("", max_length=100),
-    integration_id: UUID | None = None,
-    source_record_id: str = Query("", max_length=200),
-    tag: str = Query("", max_length=50),
-    assignee: UUID | None = None,
-    start: date | None = None,
-    end: date | None = None,
-    archived: bool = False,
-    status_start: date | None = None,
-    status_end: date | None = None,
 ):
-    if (start and end and start > end) or (
-        status_start and status_end and status_start > status_end
-    ):
-        raise AccessError(422, "invalid_date_range")
     cursor = decode_cursor(after) if after else None
     async with access(request, user, "leads.view") as (connection, current):
-        if (
-            archived
-            and "leads.archive" not in current.permissions
-            and "leads.restore" not in current.permissions
-        ):
-            raise AccessError(403, "permission_denied")
-        conditions = [
-            "l.org_id=:org",
-            visibility(current),
-            "l.archived_at IS NOT NULL" if archived else "l.archived_at IS NULL",
-        ]
-        parameters = {
-            "org": current.org_id,
-            "member": current.member_id,
-            "limit": limit + 1,
-        }
-        for enabled, condition, key, value in (
-            (
-                bool(q.strip()),
-                "l.search_document @@ plainto_tsquery('simple',:q)",
-                "q",
-                q.strip(),
-            ),
-            (status_id is not None, "l.status_id=:status", "status", status_id),
-            (bool(source), "l.source_provider=:source", "source", source),
-            (
-                integration_id is not None,
-                "l.integration_id=:integration",
-                "integration",
-                integration_id,
-            ),
-            (
-                bool(source_record_id),
-                "l.source_record_id=:source_record_id",
-                "source_record_id",
-                source_record_id,
-            ),
-            (bool(tag), "l.tags @> ARRAY[CAST(:tag AS text)]", "tag", tag),
-            (
-                assignee is not None,
-                "l.assigned_membership_id=:assignee",
-                "assignee",
-                assignee,
-            ),
-            (start is not None, "l.received_at>=CAST(:start AS date)", "start", start),
-            (
-                end is not None,
-                "l.received_at<CAST(:end AS date)+interval '1 day'",
-                "end",
-                end,
-            ),
-            (
-                status_start is not None,
-                "l.status_changed_at>=CAST(:status_start AS date)",
-                "status_start",
-                status_start,
-            ),
-            (
-                status_end is not None,
-                "l.status_changed_at<CAST(:status_end AS date)+interval '1 day'",
-                "status_end",
-                status_end,
-            ),
-        ):
-            if enabled:
-                conditions.append(condition)
-                parameters[key] = value
+        conditions, parameters = filter_conditions(current, filters)
+        total = (
+            await connection.scalar(
+                text(f"SELECT count(*) {JOINS} WHERE {' AND '.join(conditions)}"),
+                parameters,
+            )
+            if cursor is None
+            else None
+        )
+        parameters["limit"] = limit + 1
         if cursor:
             conditions.append("(l.received_at,l.id)<(:moment,:id)")
             parameters.update(moment=cursor[0], id=cursor[1])
@@ -339,10 +269,11 @@ async def list_leads(
             .all()
         )
         return {
-            "data": [dict(row) for row in rows[:limit]],
+            "data": [lead_payload(row) for row in rows[:limit]],
             "next_cursor": (
                 encode_cursor(rows[limit - 1]) if len(rows) > limit else None
             ),
+            "total": total,
         }
 
 
@@ -368,7 +299,7 @@ async def lead_options(request: Request, user: User):
             (
                 await connection.execute(
                     text(
-                        "SELECT field_key,label,field_type,options,position FROM crm.lead_custom_fields "
+                        "SELECT field_key,label,field_type,options,position,is_active FROM crm.lead_custom_fields "
                         "WHERE org_id=:org AND is_active ORDER BY position,label"
                     ),
                     {"org": current.org_id},
@@ -415,6 +346,7 @@ async def assignees(
     user: User,
     limit: int = Query(25, ge=1, le=100),
     after: UUID | None = None,
+    q: str = Query("", max_length=200),
 ):
     async with access(request, user, "leads.assign") as (connection, current):
         rows = (
@@ -422,9 +354,15 @@ async def assignees(
                 await connection.execute(
                     text(
                         "SELECT id,display_name,status FROM crm.organization_memberships WHERE org_id=:org AND status='active' "
+                        "AND strpos(lower(display_name),lower(:q))>0 "
                         "AND (CAST(:after AS uuid) IS NULL OR id>:after) ORDER BY id LIMIT :limit"
                     ),
-                    {"org": current.org_id, "after": after, "limit": limit + 1},
+                    {
+                        "org": current.org_id,
+                        "after": after,
+                        "limit": limit + 1,
+                        "q": q.strip(),
+                    },
                 )
             )
             .mappings()
@@ -440,6 +378,131 @@ async def assignees(
 async def detail(lead_id: UUID, request: Request, user: User):
     async with access(request, user, "leads.view") as (connection, current):
         return await get_lead(connection, current, lead_id)
+
+
+@router.get("/leads/{lead_id}/status-history")
+async def status_history(lead_id: UUID, request: Request, user: User):
+    async with access(request, user, "leads.view") as (connection, current):
+        await get_lead(connection, current, lead_id)
+        rows = (
+            await connection.execute(
+                text(
+                    "SELECT h.id,h.from_status,h.to_status,"
+                    "CASE WHEN :can_view_pii THEN h.note ELSE NULL END AS note,"
+                    "h.actor_name,h.created_at "
+                    "FROM crm.lead_status_history h "
+                    "WHERE h.org_id=:org AND h.lead_id=:id "
+                    "ORDER BY h.created_at DESC,h.id DESC LIMIT 100"
+                ),
+                {
+                    "org": current.org_id,
+                    "id": lead_id,
+                    "can_view_pii": "leads.pii.view" in current.permissions,
+                },
+            )
+        ).mappings().all()
+        return {"data": [dict(row) for row in rows]}
+
+
+@router.post("/leads/{lead_id}/status")
+async def change_status(
+    lead_id: UUID, body: LeadStatusChange, request: Request, user: User
+):
+    async with access(request, user, "leads.edit") as (connection, current):
+        if "leads.view" not in current.permissions:
+            raise AccessError(403, "permission_denied")
+        lead = (
+            await connection.execute(
+                text(
+                    "SELECT l.*,s.name AS previous_status FROM crm.leads l "
+                    "JOIN crm.lead_statuses s ON s.org_id=l.org_id AND s.id=l.status_id "
+                    "WHERE l.org_id=:org AND l.id=:id AND "
+                    f"{visibility(current)} FOR UPDATE OF l"
+                ),
+                {"org": current.org_id, "id": lead_id, "member": current.member_id},
+            )
+        ).mappings().first()
+        if lead is None:
+            raise AccessError(404, "lead_not_found")
+        if lead["archived_at"]:
+            raise AccessError(409, "lead_archived")
+        if lead["row_version"] != body.row_version:
+            raise AccessError(409, "lead_version_conflict")
+        if lead["status_id"] == body.status_id:
+            raise AccessError(422, "status_unchanged")
+        target_status = (
+            await connection.execute(
+                text(
+                    "SELECT name FROM crm.lead_statuses "
+                    "WHERE org_id=:org AND id=:id AND is_active"
+                ),
+                {"org": current.org_id, "id": body.status_id},
+            )
+        ).mappings().first()
+        if target_status is None:
+            raise AccessError(422, "invalid_status")
+
+        values = dict(lead)
+        values["tags"] = list(lead["tags"] or [])
+        values["custom_fields"] = dict(lead["custom_fields"] or {})
+        if "next_follow_up_at" in body.model_fields_set:
+            values["next_follow_up_at"] = body.next_follow_up_at
+        await apply_status_rules(
+            connection,
+            current.org_id,
+            body.status_id,
+            values,
+            lead["status_id"],
+        )
+        updated_version = await connection.scalar(
+            text(
+                "UPDATE crm.leads l SET status_id=:status,tags=:tags,"
+                "assigned_membership_id=:assignee,next_follow_up_at=:next_follow_up_at,"
+                "status_changed_at=now(),"
+                "row_version=row_version+1,updated_at=now() "
+                "WHERE l.org_id=:org AND l.id=:id AND l.row_version=:row_version "
+                f"AND {visibility(current)} RETURNING row_version"
+            ),
+            {
+                "org": current.org_id,
+                "id": lead_id,
+                "member": current.member_id,
+                "row_version": body.row_version,
+                "status": body.status_id,
+                "tags": values["tags"],
+                "assignee": values["assigned_membership_id"],
+                "next_follow_up_at": values["next_follow_up_at"],
+            },
+        )
+        if updated_version is None:
+            raise AccessError(409, "lead_version_conflict")
+        actor_name = await connection.scalar(
+            text(
+                "SELECT display_name FROM crm.organization_memberships "
+                "WHERE org_id=:org AND id=:member"
+            ),
+            {"org": current.org_id, "member": current.member_id},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO crm.lead_status_history "
+                "(org_id,id,lead_id,from_status,to_status,note,actor_name) "
+                "VALUES(:org,:history_id,:lead,:from_status,:to_status,:note,:actor)"
+            ),
+            {
+                "org": current.org_id,
+                "history_id": uuid4(),
+                "lead": lead_id,
+                "from_status": lead["previous_status"],
+                "to_status": target_status["name"],
+                "note": body.note,
+                "actor": actor_name or "Unknown",
+            },
+        )
+        await audit(
+            connection, current.org_id, current.member_id, "lead.status_changed", lead_id
+        )
+        return {"id": lead_id, "row_version": updated_version}
 
 
 @router.post("/leads", status_code=201)

@@ -14,6 +14,7 @@ import AccountRow from "@/components/marketplace/AccountRow";
 import ScheduleDialog, { IntervalSelect } from "@/components/marketplace/ScheduleDialog";
 import BackfillDialog from "@/components/marketplace/BackfillDialog";
 import BackfillWindows from "@/components/marketplace/BackfillWindows";
+import ImportRequests from "@/components/marketplace/ImportRequests";
 import type { ImportAction } from "@/components/marketplace/BackfillProgress";
 import { ErrorNotice, Field, Loading } from "@/components/Ui";
 import { crm, errorMessage, formatInterval, formatWhen, holdReasonText, marketplaceErrors, type MarketplaceAccount, type MarketplaceProvider, type Page } from "@/lib/crm";
@@ -54,7 +55,7 @@ function MarketplaceWorkspace() {
   const manage = can("marketplace.manage");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [accounts, setAccounts] = useState<MarketplaceAccount[] | null>(null);
-  const [tab, setTab] = useState<"providers" | "accounts">("providers");
+  const [tab, setTab] = useState<"providers" | "accounts" | "imports">("providers");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [editor, setEditor] = useState<{ provider: MarketplaceProvider; account?: MarketplaceAccount } | null>(null);
@@ -175,15 +176,16 @@ function MarketplaceWorkspace() {
     <div className="management-tabs" role="tablist" aria-label="Marketplace views">
       <button role="tab" aria-selected={tab === "providers"} onClick={() => { setTab("providers"); setSearch(""); }}>Providers</button>
       <button role="tab" aria-selected={tab === "accounts"} onClick={() => { setTab("accounts"); setSearch(""); }}>Connected accounts{accounts?.length ? ` (${accounts.length})` : ""}</button>
+      <button role="tab" aria-selected={tab === "imports"} onClick={() => { setTab("imports"); setSearch(""); }}>Import requests</button>
     </div>
-    <div className="marketplace-toolbar">
+    {tab !== "imports" && <div className="marketplace-toolbar">
       <SearchInput className="marketplace-search" value={search} onChange={setSearch} placeholder={tab === "providers" ? "Search providers" : "Search connected accounts"} />
       {tab === "providers" && <select className="select" aria-label="Provider category" value={category} onChange={event => setCategory(event.target.value)}>
         <option value="">All categories</option><option value="marketplace">Marketplaces</option><option value="social">Social</option><option value="commerce">Commerce</option><option value="form">Forms</option><option value="api">API</option><option value="telephony">Telephony</option>
       </select>}
-    </div>
+    </div>}
     <section role="tabpanel">
-      {!catalog || !accounts ? <Loading /> : tab === "providers" ? <div className="marketplace-grid">
+      {!catalog || !accounts ? <Loading /> : tab === "imports" ? <ImportRequests accounts={accounts} providerName={providerName} manage={manage} onChanged={() => void load()} /> : tab === "providers" ? <div className="marketplace-grid">
         {filteredProviders.map(item => {
           const connected = accounts.filter(account => account.provider_code === item.code).length;
           return <ProviderCard key={item.code} provider={item} connected={connected} canAdd={manage && catalog.credential_storage_ready} onAdd={() => setEditor({ provider: item })} />;

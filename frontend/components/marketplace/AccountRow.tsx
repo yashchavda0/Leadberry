@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import Icon from "@/components/Icon";
 import ProviderLogo from "@/components/ProviderLogo";
 import StatusBadge from "@/components/StatusBadge";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import BackfillProgress, { type ImportAction } from "@/components/marketplace/BackfillProgress";
 import HoldReason from "@/components/marketplace/HoldReason";
 import { formatDate, formatInterval, type MarketplaceAccount, type MarketplaceProvider } from "@/lib/crm";
@@ -30,18 +31,18 @@ export default function AccountRow({ account, provider, providerName, status, ma
       <div className="account-row-meta small muted"><span>Last lead</span><strong>{formatDate(account.last_received_at)}</strong></div>
       <div className="account-row-actions">
         {manage && provider?.adapter && (account.status === "active"
-          ? <button className="btn btn-primary action-main" disabled={busy || pending} onClick={() => onAction("sync")}><Icon name="sync" />Sync now</button>
+          ? <Button className="action-main" disabled={busy || pending} onClick={() => onAction("sync")}><Icon name="sync" />Sync now</Button>
           : verified && !pending
-            ? <button className="btn btn-primary action-main" disabled={busy} onClick={() => onAction("activate")}><Icon name="play" />Activate</button>
-            : <button className="btn btn-primary action-main" disabled={busy || pending} onClick={() => onAction("test")}><Icon name="plug" />{pending ? "Testing..." : "Test connection"}</button>)}
-        {manage && provider?.adapter && account.status === "active" && <button className="btn icon-btn" aria-label="Pause" title="Pause" disabled={busy} onClick={() => onAction("pause")}><Icon name="pause" /></button>}
-        {manage && provider?.adapter && <button className="btn icon-btn" aria-label={`Sync schedule for ${account.name}`} title="Sync schedule" disabled={busy} onClick={onSchedule}><Icon name="clock" /></button>}
-        {manage && provider?.adapter && <button className="btn icon-btn" aria-label={`Import past leads for ${account.name}`} title={importing ? "History import running" : "Import past leads"} disabled={busy || importing} onClick={onImport}><Icon name="download" /></button>}
-        {manage && provider?.setup && <button className="btn icon-btn" aria-label={`Settings for ${account.name}`} title="Settings" disabled={busy} onClick={onSettings}><Icon name="settings" /></button>}
-        <Link className="btn icon-btn" href={leads} title="View leads" aria-label="View leads"><Icon name="leads" /></Link>
-        <button className="btn icon-btn" aria-label="History" title="History" onClick={onHistory}><Icon name="history" /></button>
-        {manage && <button className="btn icon-btn btn-danger" aria-label="Disconnect" title="Disconnect" disabled={busy} onClick={() => onAction("retire")}><Icon name="trash" /></button>}
-        <button className="btn icon-btn" aria-expanded={open} aria-label={open ? "Hide details" : "Show details"} title="Details" onClick={() => setOpen(value => !value)}><span className={`chevron${open ? " open" : ""}`}><Icon name="chevron" /></span></button>
+            ? <Button className="action-main" disabled={busy} onClick={() => onAction("activate")}><Icon name="play" />Activate</Button>
+            : <Button className="action-main" disabled={busy || pending} onClick={() => onAction("test")}><Icon name="plug" />{pending ? "Testing..." : "Test connection"}</Button>)}
+        {manage && provider?.adapter && account.status === "active" && <IconButton label="Pause" disabled={busy} onClick={() => onAction("pause")}><Icon name="pause" /></IconButton>}
+        {manage && provider?.adapter && <IconButton label={`Sync schedule for ${account.name}`} disabled={busy} onClick={onSchedule}><Icon name="clock" /></IconButton>}
+        {manage && provider?.adapter && <IconButton label={`Import past leads for ${account.name}`} disabled={busy || importing} onClick={onImport}><Icon name="download" /></IconButton>}
+        {manage && provider?.setup && <IconButton label={`Settings for ${account.name}`} disabled={busy} onClick={onSettings}><Icon name="settings" /></IconButton>}
+        <IconButton label="View leads" href={leads}><Icon name="leads" /></IconButton>
+        <IconButton label="History" onClick={onHistory}><Icon name="history" /></IconButton>
+        {manage && <IconButton label="Disconnect" className="ui-icon-danger" disabled={busy} onClick={() => onAction("retire")}><Icon name="trash" /></IconButton>}
+        <IconButton label={open ? "Hide details" : "Show details"} aria-expanded={open} onClick={() => setOpen(value => !value)}><span className={`chevron${open ? " open" : ""}`}><Icon name="chevron" /></span></IconButton>
       </div>
     </div>
     {status.tone === "danger"

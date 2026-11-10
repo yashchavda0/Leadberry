@@ -4,7 +4,15 @@ from fastapi import Request
 from sqlalchemy import text
 
 from ...core.database import tenant_transaction
+from ...core.phone import normalize_phone
 from ..identity.service import AccessError, Principal, effective_access
+
+
+def lead_payload(row) -> dict:
+    result = dict(row)
+    if isinstance(result.get("phone"), str):
+        result["phone"] = normalize_phone(result["phone"])
+    return result
 
 
 @asynccontextmanager
@@ -50,9 +58,9 @@ def fields(user: Principal) -> str:
     )
     return (
         "l.id,l.name,l.company,l.city,l.state,l.product,l.source_provider,l.source_record_id,l.status_id,"
-        "l.integration_id,a.name AS source_account_name,"
+        "l.integration_id,a.name AS source_account_name,l.backfill_id,"
         "s.name AS status,s.color AS status_color,l.assigned_membership_id,m.display_name AS assignee,"
-        "l.team_id,l.tags,l.next_follow_up_at,l.archived_at,l.row_version,l.received_at,l.updated_at,l.status_changed_at,"
+        "l.team_id,t.name AS team_name,l.tags,l.next_follow_up_at,l.archived_at,l.row_version,l.received_at,l.updated_at,l.status_changed_at,"
         f"{contacts},{'false' if pii else 'true'} AS pii_redacted"
     )
 
@@ -61,4 +69,5 @@ JOINS = (
     "FROM crm.leads l JOIN crm.lead_statuses s ON s.org_id=l.org_id AND s.id=l.status_id "
     "LEFT JOIN crm.organization_memberships m ON m.org_id=l.org_id AND m.id=l.assigned_membership_id "
     "LEFT JOIN crm.marketplace_accounts a ON a.org_id=l.org_id AND a.id=l.integration_id "
+    "LEFT JOIN crm.teams t ON t.org_id=l.org_id AND t.id=l.team_id "
 )

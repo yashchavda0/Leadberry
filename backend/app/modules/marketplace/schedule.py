@@ -223,7 +223,11 @@ def history_status(
     else:
         held = backfill["hold_until"] and backfill["hold_until"] > now
         status.update(
-            reason=backfill["hold_reason"] if held else "gap_recovery" if backfill["kind"] == "gap" else None,
+            reason=(
+                backfill["hold_reason"]
+                if held
+                else "gap_recovery" if backfill["kind"] == "gap" else None
+            ),
             until=backfill["hold_until"] if held else None,
             eta=_later(now, backfill["hold_until"]) + timedelta(hours=pending / rate),
         )

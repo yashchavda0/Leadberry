@@ -45,7 +45,9 @@ MAX_CONCURRENT_RUNS = 8
 ADAPTER_CODES = ("indiamart", "tradeindia")
 ADAPTERS = "('indiamart','tradeindia')"
 # An import may only take a slot when the next live sync is at least this far away.
-IMPORT_LEAD_SECONDS = max(slot_seconds(code) for code in ADAPTER_CODES) - LIVE_SLIP_SECONDS
+IMPORT_LEAD_SECONDS = (
+    max(slot_seconds(code) for code in ADAPTER_CODES) - LIVE_SLIP_SECONDS
+)
 
 
 def cooldown(code: str) -> int:
@@ -380,7 +382,9 @@ async def _finish_window(
             )
             await job(f"hold_reason=NULL,hold_until=NULL,{counts}")
         else:
-            await window(f"state='completed',hold_reason=NULL,safe_error_code=NULL,{counts}")
+            await window(
+                f"state='completed',hold_reason=NULL,safe_error_code=NULL,{counts}"
+            )
             await job(
                 f"hold_reason=NULL,hold_until=NULL,{counts},"
                 "empty_streak=CASE WHEN :fetched=0 THEN empty_streak+1 ELSE 0 END"
@@ -410,7 +414,9 @@ async def _finish_window(
         )
         await job("hold_reason='history_not_ready',hold_until=:until", until=release)
     elif error == "provider_history_expired":
-        await window("state='expired',hold_reason='history_expired',safe_error_code=:error")
+        await window(
+            "state='expired',hold_reason='history_expired',safe_error_code=:error"
+        )
     elif error == "provider_payload_too_large":
         parts = split_window(code, run["window_start"], run["window_end"])
         if not parts:
@@ -450,7 +456,9 @@ async def _finish_window(
                 until=retry,
                 reason=reason,
             )
-            await job("hold_reason=:reason,hold_until=:until", reason=reason, until=retry)
+            await job(
+                "hold_reason=:reason,hold_until=:until", reason=reason, until=retry
+            )
     await complete_if_done(connection, org, run["backfill_id"])
 
 
@@ -550,13 +558,14 @@ async def finish(
                         custom=json.dumps({"source_query_time": lead["source_time"]}),
                         # Imported history keeps the enquiry time so old leads don't surface as new today.
                         received=lead["source_time"] if imported else None,
+                        backfill=run["backfill_id"] if imported else None,
                     )
                     created = await connection.scalar(
                         text(
                             "INSERT INTO crm.leads(org_id,integration_id,source_record_id,source_provider,created_by,status_id,"
-                            "assigned_membership_id,name,company,phone,email,city,state,address,product,enquiry,custom_fields,received_at) "
+                            "assigned_membership_id,name,company,phone,email,city,state,address,product,enquiry,custom_fields,received_at,backfill_id) "
                             "VALUES(:org,:account,:source_record_id,:source,:member,:status,:assignee,:name,:company,:phone,:email,"
-                            ":city,:state,:address,:product,:enquiry,CAST(:custom AS jsonb),COALESCE(CAST(:received AS timestamptz),now())) "
+                            ":city,:state,:address,:product,:enquiry,CAST(:custom AS jsonb),COALESCE(CAST(:received AS timestamptz),now()),:backfill) "
                             "ON CONFLICT(org_id,integration_id,source_record_id) WHERE integration_id IS NOT NULL DO NOTHING RETURNING id"
                         ),
                         values,
@@ -629,7 +638,13 @@ async def _record_gap(
             "VALUES(:org,:backfill,:account,:start,:end) ON CONFLICT DO NOTHING"
         ),
         [
-            {"org": org, "backfill": backfill, "account": run["id"], "start": window_start, "end": window_end}
+            {
+                "org": org,
+                "backfill": backfill,
+                "account": run["id"],
+                "start": window_start,
+                "end": window_end,
+            }
             for window_start, window_end in windows
         ],
     )
@@ -646,7 +661,9 @@ async def _cool_key(connection, run: dict, seconds: int) -> None:
     )
 
 
-async def _account_after_import(connection, run: dict, error: str | None, parameters: dict) -> None:
+async def _account_after_import(
+    connection, run: dict, error: str | None, parameters: dict
+) -> None:
     # Import results never move the live watermark or the row version the UI edits against.
     if error in ACCOUNT_ERRORS:
         await connection.execute(
@@ -667,14 +684,21 @@ async def _account_after_import(connection, run: dict, error: str | None, parame
             {**parameters, "cooldown": seconds},
         )
         await _cool_key(connection, run, seconds)
-    elif not error or error in ("provider_history_not_ready", "provider_history_expired"):
+    elif not error or error in (
+        "provider_history_not_ready",
+        "provider_history_expired",
+    ):
         await connection.execute(
-            text("UPDATE crm.marketplace_accounts SET last_success_at=now() WHERE org_id=:org AND id=:id"),
+            text(
+                "UPDATE crm.marketplace_accounts SET last_success_at=now() WHERE org_id=:org AND id=:id"
+            ),
             parameters,
         )
 
 
-async def _account_after_live(connection, run: dict, error: str | None, parameters: dict) -> None:
+async def _account_after_live(
+    connection, run: dict, error: str | None, parameters: dict
+) -> None:
     if error in TRANSIENT_ERRORS:
         parameters["cooldown"] = (
             cooldown(run["provider_code"]) if error == "provider_rate_limited" else 0

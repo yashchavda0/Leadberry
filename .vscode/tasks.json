@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Verify Leads Workflow",
+			"type": "shell",
+			"command": "$env:PATH = 'C:\\Program Files\\nodejs;' + $env:PATH; & 'C:\\Program Files\\nodejs\\node.exe' frontend/node_modules/@playwright/test/cli.js test --config=frontend/playwright.config.ts --grep 'lead table preferences' --reporter=line",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Verify Leads Workflow Alternate Port",
+			"type": "shell",
+			"command": "$env:PATH = 'C:\\Program Files\\nodejs;' + $env:PATH; $env:CRM_TEST_PORT = '3014'; & 'C:\\Program Files\\nodejs\\node.exe' frontend/node_modules/@playwright/test/cli.js test --config=frontend/playwright.config.ts --grep 'lead table preferences' --reporter=line",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

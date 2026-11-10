@@ -1,9 +1,112 @@
 
-Running 4 tests using 1 worker
+Running 6 tests using 1 worker
 
-  ok 1 tests\crm.spec.ts:5:1 › marketplace provider-specific credentials, multiple accounts and responsive layout (12.3s)
-  ok 2 tests\crm.spec.ts:67:1 › landing selection respects permission revocation and role-only management access (5ms)
-  ok 3 tests\crm.spec.ts:79:1 › owner onboarding, roles, invitations, leads, restricted member and responsive navigation (45.2s)
-  ok 4 tests\crm.spec.ts:265:1 › mobile login is usable and invalid credentials are explained (1.6s)
+  ✘  1 tests\crm.spec.ts:5:1 › marketplace provider-specific credentials, multiple accounts and responsive layout (7.6s)
+  ✓  2 tests\crm.spec.ts:138:1 › marketplace sync schedule and history import explain every hold (4.2s)
+  ✓  3 tests\crm.spec.ts:348:1 › landing selection respects permission revocation and role-only management access (5ms)
+  ✘  4 tests\crm.spec.ts:375:1 › lead table preferences and typed required fields work in the manual lead form (2.0m)
+  ✘  5 tests\crm.spec.ts:745:1 › owner onboarding, roles, invitations, leads, restricted member and responsive navigation (7.2s)
+  ✘  6 tests\crm.spec.ts:1088:1 › mobile login is usable and invalid credentials are explained (6.1s)
 
-  4 passed (1.2m)
+
+  1) tests\crm.spec.ts:5:1 › marketplace provider-specific credentials, multiple accounts and responsive layout 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Marketplace browser test' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('heading', { name: 'Marketplace browser test' }) with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Marketplace browser test' })
+
+
+      23 |   await expect(
+      24 |     page.getByRole("heading", { name: "Marketplace browser test" }),
+    > 25 |   ).toBeVisible();
+         |     ^
+      26 |   await page.goto("/marketplace");
+      27 |   await expect(
+      28 |     page.getByRole("heading", { name: "Marketplace", exact: true }),
+        at C:\Users\STTL\Projects\Cronberry Software\frontend\tests\crm.spec.ts:25:5
+
+    Error Context: test-results\crm-marketplace-provider-s-ead47-ounts-and-responsive-layout\error-context.md
+
+  2) tests\crm.spec.ts:375:1 › lead table preferences and typed required fields work in the manual lead form 
+
+    Test timeout of 120000ms exceeded.
+
+    Error: locator.selectOption: Test timeout of 120000ms exceeded.
+    Call log:
+      - waiting for getByLabel('Status', { exact: true })
+
+
+      621 |   await expect(page.getByLabel("Tag", { exact: true })).not.toBeVisible();
+      622 |   await page.getByLabel("Search", { exact: true }).fill("Example");
+    > 623 |   await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("status-new");
+          |                                                    ^
+      624 |   await page.getByRole("button", { name: "Assigned to", exact: true }).click();
+      625 |   await page.getByLabel("Search assigned to").fill("Owner");
+      626 |   await expect
+        at C:\Users\STTL\Projects\Cronberry Software\frontend\tests\crm.spec.ts:623:52
+
+    Error Context: test-results\crm-lead-table-preferences-edd71-ork-in-the-manual-lead-form\error-context.md
+
+  3) tests\crm.spec.ts:745:1 › owner onboarding, roles, invitations, leads, restricted member and responsive navigation 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('heading', { name: 'Browser Test CRM' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('heading', { name: 'Browser Test CRM' }) with timeout 5000ms
+      - waiting for getByRole('heading', { name: 'Browser Test CRM' })
+
+
+      767 |   await expect(
+      768 |     page.getByRole("heading", { name: "Browser Test CRM" }),
+    > 769 |   ).toBeVisible();
+          |     ^
+      770 |   await page
+      771 |     .getByRole("link", { name: "User management", exact: true })
+      772 |     .click();
+        at C:\Users\STTL\Projects\Cronberry Software\frontend\tests\crm.spec.ts:769:5
+
+    Error Context: test-results\crm-owner-onboarding-roles-ae2c2-r-and-responsive-navigation\error-context.md
+
+  4) tests\crm.spec.ts:1088:1 › mobile login is usable and invalid credentials are explained ───────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByRole('alert').filter({ hasText: 'incorrect' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" getByRole('alert').filter({ hasText: 'incorrect' }) with timeout 5000ms
+      - waiting for getByRole('alert').filter({ hasText: 'incorrect' })
+
+
+      1100 |   await expect(
+      1101 |     page.getByRole("alert").filter({ hasText: "incorrect" }),
+    > 1102 |   ).toBeVisible();
+           |     ^
+      1103 |   expect(
+      1104 |     await page.evaluate(
+      1105 |       () => document.documentElement.scrollWidth <= window.innerWidth,
+        at C:\Users\STTL\Projects\Cronberry Software\frontend\tests\crm.spec.ts:1102:5
+
+    Error Context: test-results\crm-mobile-login-is-usable-71f41-d-credentials-are-explained\error-context.md
+
+  4 failed
+    tests\crm.spec.ts:5:1 › marketplace provider-specific credentials, multiple accounts and responsive layout 
+    tests\crm.spec.ts:375:1 › lead table preferences and typed required fields work in the manual lead form 
+    tests\crm.spec.ts:745:1 › owner onboarding, roles, invitations, leads, restricted member and responsive navigation 
+    tests\crm.spec.ts:1088:1 › mobile login is usable and invalid credentials are explained ────────
+  2 passed (2.7m)

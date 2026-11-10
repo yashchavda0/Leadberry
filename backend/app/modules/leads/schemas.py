@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, EmailStr, Field, field_validator
 
+from ...core.phone import normalize_phone
 from ..identity.schemas import Input
 
 
@@ -24,6 +25,11 @@ class LeadInput(Input):
     tags: list[str] = Field(default_factory=list, max_length=20)
     custom_fields: dict[str, str | int | float | bool | None] = Field(default_factory=dict, max_length=50)
     next_follow_up_at: AwareDatetime | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        return normalize_phone(value)
 
     @field_validator("name")
     @classmethod
@@ -54,6 +60,21 @@ class LeadInput(Input):
 
 class LeadUpdate(LeadInput):
     row_version: int = Field(ge=1)
+
+
+class LeadStatusChange(Input):
+    status_id: UUID
+    note: str = Field(min_length=1, max_length=2000)
+    next_follow_up_at: AwareDatetime | None = None
+    row_version: int = Field(ge=1)
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("A note is required for a status change")
+        return value
 
 
 class VersionInput(Input):

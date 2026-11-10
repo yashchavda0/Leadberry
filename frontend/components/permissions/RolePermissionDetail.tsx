@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useSession } from "@/components/Session";
+import ScrollArea from "@/components/ScrollArea";
 import SearchInput from "@/components/SearchInput";
 import { type Permission, type Role } from "@/lib/crm";
 
@@ -28,11 +29,11 @@ export default function RolePermissionDetail({ role, catalog, onEdit }: { role: 
       <SearchInput className="perm-search" placeholder="Search permissions (e.g. leads.assign)" label="Search permissions" value={query} onChange={setQuery} />
       <label className="check-row"><input type="checkbox" checked={grantedOnly} onChange={event => setGrantedOnly(event.target.checked)} />Granted only</label>
     </div>
-    <div className="perm-modules">
+    <ScrollArea maxHeight="60vh" label="Permissions"><div className="perm-modules">
       {modules.length ? modules.map(group => <details key={group.module} open>
         <summary><span>{group.module.replaceAll("_", " ")}</span><span className="small muted">{group.grantedCount}/{group.total}</span></summary>
         <ul>{group.visible.map(item => <li key={item.code} data-granted={granted.has(item.code)}><code>{item.code}</code><span className="small">{granted.has(item.code) ? "Granted" : "Not granted"}</span></li>)}</ul>
       </details>) : <p className="small muted">No permissions match.</p>}
-    </div>
+    </div></ScrollArea>
   </section>;
 }

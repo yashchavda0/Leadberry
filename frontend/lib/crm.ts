@@ -39,11 +39,25 @@ export type HistoryStatus = {
   until: string | null;
   eta: string | null;
 };
+export type ImportRequest = HistoryStatus & {
+  account_id: string;
+  account_name: string;
+  provider_code: string;
+  requested_by: string | null;
+};
 export type BackfillWindow = {
   id: string;
   window_start: string;
   window_end: string;
-  state: "pending" | "running" | "completed" | "failed" | "expired" | "skipped" | "split" | "cancelled";
+  state:
+    | "pending"
+    | "running"
+    | "completed"
+    | "failed"
+    | "expired"
+    | "skipped"
+    | "split"
+    | "cancelled";
   attempts: number;
   next_attempt_at: string;
   next_page: number;
@@ -109,7 +123,11 @@ export type Organization = {
   timezone: string;
   status: string;
 };
-export type Page<T> = { data: T[]; next_cursor: string | null };
+export type Page<T> = {
+  data: T[];
+  next_cursor: string | null;
+  total?: number | null;
+};
 export type Role = {
   id: string;
   name: string;
@@ -193,10 +211,12 @@ export type Lead = {
   status_color: string;
   integration_id?: string | null;
   source_account_name?: string | null;
+  backfill_id?: string | null;
   status_changed_at: string;
   assigned_membership_id: string | null;
   assignee: string | null;
   team_id: string | null;
+  team_name?: string | null;
   tags: string[];
   custom_fields: Record<string, string | number | boolean | null>;
   next_follow_up_at: string | null;
@@ -301,10 +321,14 @@ const messages: Record<string, string> = {
     "A history import is already running for this connection. Cancel it or wait for it to finish.",
   marketplace_backfill_range_empty:
     "There is nothing to import in that range: it is outside the provider's history limit or already covered by live sync.",
-  marketplace_backfill_range_invalid: "The start date must be on or before the end date.",
-  marketplace_backfill_closed: "This import has already finished or was cancelled.",
+  marketplace_backfill_range_invalid:
+    "The start date must be on or before the end date.",
+  marketplace_backfill_closed:
+    "This import has already finished or was cancelled.",
   marketplace_backfill_nothing_to_retry: "No failed periods to retry.",
   marketplace_backfill_not_found: "This import is no longer available.",
+  lead_export_too_large:
+    "More than 50,000 leads match. Narrow the filters (for example a date range) and export again.",
 };
 
 export const marketplaceErrors: Record<string, string> = {
@@ -414,6 +438,44 @@ export function errorMessage(error: unknown): string {
     : "An unexpected error occurred.";
 }
 
+/** Downloads a file response (such as an Excel export) and returns the saved file name. */
+export async function download(
+  path: string,
+  fallbackName: string,
+): Promise<string> {
+  const response = await fetch(`/api/v1${path}`, {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    let code = "request_failed";
+    try {
+      code = (await response.json()).code || code;
+    } catch {
+      /* non-JSON error body */
+    }
+    if (response.status === 401)
+      window.dispatchEvent(new Event("crm-session-expired"));
+    throw new ApiError(
+      response.status,
+      code,
+      messages[code] ||
+        `Download failed: ${code.replaceAll("_", " ")} (${response.status}).`,
+    );
+  }
+  const name =
+    /filename="([^"]+)"/.exec(
+      response.headers.get("content-disposition") || "",
+    )?.[1] || fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+  return name;
+}
+
 export function formatDate(value: string | null): string {
   if (!value) return "-";
   return new Date(value).toLocaleString(undefined, {
@@ -423,11 +485,17 @@ export function formatDate(value: string | null): string {
 }
 
 export function formatDay(value: string): string {
-  return new Date(value).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
+  return new Date(value).toLocaleDateString(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 export function formatInterval(seconds: number): string {
-  return seconds % 3600 === 0 ? `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}` : `${seconds / 60} min`;
+  return seconds % 3600 === 0
+    ? `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`
+    : `${seconds / 60} min`;
 }
 
 // Mirrors backend schedule.backfill_slots_per_cycle: 315 s request slot, live may slip 90 s.
@@ -441,13 +509,27 @@ export function formatWhen(value: string | null, now = Date.now()): string {
   const target = new Date(value);
   const minutes = Math.round((target.getTime() - now) / 60000);
   const sameDay = target.toDateString() === new Date(now).toDateString();
-  const exact = target.toLocaleString(undefined, sameDay ? { timeStyle: "short" } : { dateStyle: "medium", timeStyle: "short" });
+  const exact = target.toLocaleString(
+    undefined,
+    sameDay
+      ? { timeStyle: "short" }
+      : { dateStyle: "medium", timeStyle: "short" },
+  );
   if (minutes <= 0) return exact;
-  const relative = minutes < 60 ? `${minutes} min` : minutes < 2880 ? `${Math.round(minutes / 60)} h` : `${Math.round(minutes / 1440)} days`;
+  const relative =
+    minutes < 60
+      ? `${minutes} min`
+      : minutes < 2880
+        ? `${Math.round(minutes / 60)} h`
+        : `${Math.round(minutes / 1440)} days`;
   return `in ${relative} · ${exact}`;
 }
 
-export function holdReasonText(reason: string, provider: string, until: string | null): string {
+export function holdReasonText(
+  reason: string,
+  provider: string,
+  until: string | null,
+): string {
   const when = formatWhen(until);
   const at = when ? ` (${when})` : "";
   const texts: Record<string, string> = {
@@ -459,21 +541,31 @@ export function holdReasonText(reason: string, provider: string, until: string |
     provider_error_retry: `The last import request failed. Retrying automatically${at}.`,
     history_not_ready: `${provider} releases leads older than a new API key only 24 hours after the key was generated. Older leads will be fetched${at}.`,
     history_expired: `Older than ${provider}'s history limit, so this period can no longer be fetched.`,
-    window_split_large: "This period had too many leads for one request, so it was split into smaller parts.",
-    window_continues_next_slot: "This period has more pages; the rest is fetched in the next request slot.",
+    window_split_large:
+      "This period had too many leads for one request, so it was split into smaller parts.",
+    window_continues_next_slot:
+      "This period has more pages; the rest is fetched in the next request slot.",
     import_paused_interval_5min: `History import is paused: syncing every 5 minutes uses every request ${provider} allows. Choose 10 minutes or more to free slots.`,
-    import_paused_account_paused: "History import resumes when the connection is active again.",
-    import_paused_needs_test: "History import waits until the connection is tested and active.",
-    import_cancelled_credentials_changed: "Import cancelled because the API key changed. Start a new import for the new key.",
-    import_cancelled_connection_removed: "Import cancelled because the connection was deleted.",
+    import_paused_account_paused:
+      "History import resumes when the connection is active again.",
+    import_paused_needs_test:
+      "History import waits until the connection is tested and active.",
+    import_cancelled_credentials_changed:
+      "Import cancelled because the API key changed. Start a new import for the new key.",
+    import_cancelled_connection_removed:
+      "Import cancelled because the connection was deleted.",
     import_cancelled_by_user: "Import cancelled.",
-    import_cancelled_actor_inactive: "Import cancelled because the member who created this connection lost marketplace access.",
+    import_cancelled_actor_inactive:
+      "Import cancelled because the member who created this connection lost marketplace access.",
     import_stopped_no_older_data: `Stopped early: ${provider} returned no older enquiries for several weeks in a row.`,
-    import_completed_with_failures: "Import finished, but some periods failed. Open the import details to retry them.",
-    key_expiry_risk: until && new Date(until).getTime() > Date.now()
-      ? `${provider} expires API keys that are unused for 7 days. Resume before ${formatDate(until)} to keep this key.`
-      : `This key has not been used for over 7 days and may have expired at ${provider}. Generate a new key if the test fails.`,
-    worker_offline: "The connector is offline. Requests run as soon as it starts again.",
+    import_completed_with_failures:
+      "Import finished, but some periods failed. Open the import details to retry them.",
+    key_expiry_risk:
+      until && new Date(until).getTime() > Date.now()
+        ? `${provider} expires API keys that are unused for 7 days. Resume before ${formatDate(until)} to keep this key.`
+        : `This key has not been used for over 7 days and may have expired at ${provider}. Generate a new key if the test fails.`,
+    worker_offline:
+      "The connector is offline. Requests run as soon as it starts again.",
     gap_recovery: `Live sync resumed with the most recent period. Leads missed before that are fetched from ${provider} in the free request slots, newest first.`,
   };
   return texts[reason] || reason.replaceAll("_", " ");

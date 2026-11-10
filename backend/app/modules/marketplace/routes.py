@@ -1,3 +1,5 @@
+import base64
+import binascii
 import hashlib
 import json
 from contextlib import asynccontextmanager
@@ -179,7 +181,9 @@ async def presented(connection, org: UUID, identity: UUID) -> dict:
     )
 
 
-async def cancel_backfills(connection, org: UUID, account_id: UUID, reason: str) -> None:
+async def cancel_backfills(
+    connection, org: UUID, account_id: UUID, reason: str
+) -> None:
     parameters = {"org": org, "id": account_id, "reason": reason}
     await connection.execute(
         text(
@@ -473,7 +477,10 @@ async def update_account(
         if values:
             # A replaced key may belong to a different seller account, so its history must be imported afresh.
             await cancel_backfills(
-                connection, current.org_id, account_id, "import_cancelled_credentials_changed"
+                connection,
+                current.org_id,
+                account_id,
+                "import_cancelled_credentials_changed",
             )
         await audit(
             connection,
@@ -532,12 +539,16 @@ async def create_backfill(
             current.org_id,
             current.member_id,
             existing,
-            ist_midnight(body.from_date)
-            if body.from_date
-            else datetime.min.replace(tzinfo=timezone.utc),
-            ist_midnight(body.to_date + timedelta(days=1))
-            if body.to_date
-            else existing["created_at"],
+            (
+                ist_midnight(body.from_date)
+                if body.from_date
+                else datetime.min.replace(tzinfo=timezone.utc)
+            ),
+            (
+                ist_midnight(body.to_date + timedelta(days=1))
+                if body.to_date
+                else existing["created_at"]
+            ),
         )
         return await presented(connection, current.org_id, account_id)
 
@@ -563,6 +574,97 @@ async def list_backfills(account_id: UUID, request: Request, user: User):
         online, now = bool(worker and worker["online"]), datetime.now(timezone.utc)
         return {
             "data": [history_status(existing, dict(row), online, now) for row in rows]
+        }
+
+
+def encode_request_cursor(row) -> str:
+    return base64.urlsafe_b64encode(
+        f"{row['created_at'].isoformat()}|{row['id']}".encode()
+    ).decode()
+
+
+def decode_request_cursor(value: str) -> tuple[datetime, UUID]:
+    try:
+        moment, identity = (
+            base64.b64decode(value, altchars=b"-_", validate=True).decode().split("|")
+        )
+        parsed = datetime.fromisoformat(moment)
+        if parsed.tzinfo is None:
+            raise ValueError("Timezone required")
+        return parsed, UUID(identity)
+    except (ValueError, UnicodeError, binascii.Error):
+        raise AccessError(422, "invalid_cursor") from None
+
+
+@router.get("/backfills")
+async def import_requests(
+    request: Request,
+    user: User,
+    account_id: UUID | None = None,
+    state: Literal["active", "completed", "cancelled"] | None = None,
+    kind: Literal["import", "gap"] | None = None,
+    after: str | None = Query(None, max_length=200),
+    limit: int = Query(25, ge=1, le=100),
+):
+    """Every history import and missed-lead recovery in the organization, newest first."""
+    cursor = decode_request_cursor(after) if after else None
+    async with access(request, user, "marketplace.view") as (connection, current):
+        conditions = ["b.org_id=:org"]
+        parameters: dict = {"org": current.org_id, "limit": limit + 1}
+        for value, condition, key in (
+            (account_id, "b.account_id=:account", "account"),
+            (state, "b.state=:state", "state"),
+            (kind, "b.kind=:kind", "kind"),
+        ):
+            if value is not None:
+                conditions.append(condition)
+                parameters[key] = value
+        if cursor:
+            conditions.append("(b.created_at,b.id)<(:moment,:last)")
+            parameters.update(moment=cursor[0], last=cursor[1])
+        rows = (
+            (
+                await connection.execute(
+                    text(
+                        "SELECT p.id,p.kind,p.state,p.range_start,p.range_end,p.hold_reason,p.hold_until,p.fetched_count,"
+                        "p.accepted_count,p.created_at,p.finished_at,c.*,a.id AS account_id,a.name AS account_name,"
+                        "a.provider_code,a.status,a.verified_version,a.credential_version,a.sync_interval_seconds,"
+                        "m.display_name AS requested_by FROM (SELECT * FROM crm.marketplace_backfills b WHERE "
+                        + " AND ".join(conditions)
+                        + " ORDER BY b.created_at DESC,b.id DESC LIMIT :limit) p "
+                        "JOIN crm.marketplace_accounts a ON a.org_id=p.org_id AND a.id=p.account_id "
+                        "LEFT JOIN crm.organization_memberships m ON m.org_id=p.org_id AND m.id=p.created_by "
+                        "CROSS JOIN LATERAL (SELECT "
+                        "count(*) FILTER(WHERE w.state NOT IN ('split','cancelled')) AS windows_total,"
+                        "count(*) FILTER(WHERE w.state IN ('completed','expired','skipped')) AS windows_done,"
+                        "count(*) FILTER(WHERE w.state='failed') AS windows_failed,"
+                        "count(*) FILTER(WHERE w.state='pending') AS windows_pending,"
+                        "count(*) FILTER(WHERE w.state='running') AS windows_running "
+                        "FROM crm.marketplace_backfill_windows w WHERE w.org_id=p.org_id AND w.backfill_id=p.id) c "
+                        "ORDER BY p.created_at DESC,p.id DESC"
+                    ),
+                    parameters,
+                )
+            )
+            .mappings()
+            .all()
+        )
+        worker = await worker_state(connection)
+        online, now = bool(worker and worker["online"]), datetime.now(timezone.utc)
+        return {
+            "data": [
+                {
+                    **history_status(dict(row), dict(row), online, now),
+                    "account_id": row["account_id"],
+                    "account_name": row["account_name"],
+                    "provider_code": row["provider_code"],
+                    "requested_by": row["requested_by"],
+                }
+                for row in rows[:limit]
+            ],
+            "next_cursor": (
+                encode_request_cursor(rows[limit - 1]) if len(rows) > limit else None
+            ),
         }
 
 
@@ -744,7 +846,10 @@ async def action_account(
                 )
             if action == "retire":
                 await cancel_backfills(
-                    connection, current.org_id, account_id, "import_cancelled_connection_removed"
+                    connection,
+                    current.org_id,
+                    account_id,
+                    "import_cancelled_connection_removed",
                 )
         await audit(
             connection,

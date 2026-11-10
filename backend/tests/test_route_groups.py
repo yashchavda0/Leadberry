@@ -37,9 +37,12 @@ GROUPS = {
     },
     "Leads": {
         "/leads": {"get", "post"},
+        "/leads/export": {"get"},
         "/leads/options": {"get"},
         "/leads/assignees": {"get"},
         "/leads/{lead_id}": {"get", "put"},
+        "/leads/{lead_id}/status-history": {"get"},
+        "/leads/{lead_id}/status": {"post"},
         "/leads/{lead_id}/archive": {"post"},
         "/leads/{lead_id}/restore": {"post"},
     },
@@ -67,6 +70,7 @@ GROUPS = {
         "/marketplace/accounts/{account_id}/backfills": {"get", "post"},
         "/marketplace/accounts/{account_id}/backfills/{backfill_id}/windows": {"get"},
         "/marketplace/accounts/{account_id}/backfills/{backfill_id}/{action}": {"post"},
+        "/marketplace/backfills": {"get"},
     },
     "Health": {"/health/live": {"get"}, "/health/ready": {"get"}},
 }
@@ -123,6 +127,7 @@ def test_create_and_logout_status_codes_are_preserved(app):
         "/leads",
         "/leads/options",
         "/leads/assignees",
+        "/leads/00000000-0000-0000-0000-000000000001/status-history",
         "/teams",
         "/dashboard",
         "/marketplace/providers",
@@ -143,6 +148,14 @@ def test_grouped_routes_still_require_authentication(app, path):
         ("/roles", {"name": "Sales"}),
         ("/invitations", {"email": "invite@example.com", "display_name": "Invite"}),
         ("/leads", {"name": "Lead"}),
+        (
+            "/leads/00000000-0000-0000-0000-000000000001/status",
+            {
+                "status_id": "00000000-0000-0000-0000-000000000002",
+                "note": "Qualified the lead",
+                "row_version": 1,
+            },
+        ),
         ("/teams", {"name": "Team"}),
         ("/marketplace/accounts", {"provider_code": "indiamart", "name": "Account"}),
         ("/auth/logout", None),
@@ -217,6 +230,48 @@ def test_current_identity_uses_the_shared_principal_dependency(app, monkeypatch)
     assert response.json()["permissions"] == ["leads.view"]
     assert response.json()["data_scope"] == "own"
     assert response.json()["landing_page"] == "/leads"
+
+
+@pytest.mark.parametrize(
+    "path,module", [("/leads/assignees", "routes"), ("/teams", "teams")]
+)
+def test_lead_assignment_search_is_bounded_and_parameterized(
+    app, monkeypatch, path, module
+):
+    from importlib import import_module
+
+    endpoint = import_module(f"app.modules.leads.{module}")
+    result = SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: []))
+    connection = SimpleNamespace(
+        execute=AsyncMock(return_value=result), scalar=AsyncMock(return_value=0)
+    )
+    user = Principal(
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        uuid4(),
+        False,
+        frozenset({"leads.view", "leads.assign"}),
+        "own",
+    )
+
+    @asynccontextmanager
+    async def transaction(*args):
+        yield connection, user
+
+    monkeypatch.setattr(endpoint, "access", transaction)
+    app.dependency_overrides[principal] = lambda: user
+    client = TestClient(app)
+    response = client.get(f"/api/v1{path}", params={"q": "  O'Brien%  ", "limit": 25})
+    assert response.status_code == 200
+    statement, parameters = connection.execute.await_args.args
+    assert "strpos(lower(" in str(statement)
+    assert "O'Brien" not in str(statement)
+    assert parameters["q"] == "O'Brien%"
+    assert parameters["org"] == user.org_id
+    assert parameters["limit"] == 26
+    assert client.get(f"/api/v1{path}", params={"q": "x" * 201}).status_code == 422
+    assert client.get(f"/api/v1{path}", params={"limit": 101}).status_code == 422
 
 
 def test_shared_lead_queries_preserve_scope_and_pii_redaction():

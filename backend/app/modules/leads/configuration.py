@@ -26,29 +26,30 @@ BUILTIN_FIELDS = {
     "tags",
     "next_follow_up_at",
 }
-TABLE_COLUMNS = {
-    "name",
-    "company",
-    "email",
-    "phone",
-    "status_changed_at",
-    "status",
-    "source_name",
-    "source_record_id",
-    "received_at",
-    "assignee",
-    "tags",
-}
 DEFAULT_COLUMNS = [
     "name",
     "company",
     "email",
     "phone",
+    "city",
+    "state",
+    "address",
+    "product",
+    "enquiry",
     "status_changed_at",
     "status",
     "source_name",
+    "source_provider",
     "source_record_id",
+    "received_at",
+    "assignee",
+    "team_name",
+    "tags",
+    "next_follow_up_at",
+    "updated_at",
+    "archived_at",
 ]
+DEFAULT_VISIBLE_COLUMNS = ["company", "email", "phone", "name", "status_changed_at", "status", "source_name", "received_at"]
 
 
 class StatusInput(BaseModel):
@@ -105,7 +106,7 @@ class CustomFieldCreate(CustomFieldInput):
 
 class ColumnPreferences(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    columns: list[str] = Field(min_length=1, max_length=20)
+    columns: list[str] = Field(min_length=1, max_length=500)
 
 
 async def validate_status_rules(
@@ -571,9 +572,27 @@ async def update_custom_field(
         return {"field_key": field_key, "status": "updated"}
 
 
+def is_pii_table_column(column: str) -> bool:
+    return column in ("email", "phone", "address", "enquiry") or column.startswith(
+        "custom:"
+    )
+
+
+async def available_table_columns(connection, org_id: UUID) -> list[str]:
+    custom_keys = await connection.scalars(
+        text(
+            "SELECT field_key FROM crm.lead_custom_fields WHERE org_id=:org AND is_active "
+            "ORDER BY position,label"
+        ),
+        {"org": org_id},
+    )
+    return DEFAULT_COLUMNS + [f"custom:{key}" for key in custom_keys]
+
+
 @router.get("/lead-table-preferences")
 async def get_table_preferences(request: Request, user: User):
     async with access(request, user, "leads.view") as (connection, current):
+        available = await available_table_columns(connection, current.org_id)
         columns = await connection.scalar(
             text(
                 "SELECT columns FROM crm.lead_table_preferences WHERE org_id=:org AND membership_id=:member"
@@ -581,24 +600,29 @@ async def get_table_preferences(request: Request, user: User):
             {"org": current.org_id, "member": current.member_id},
         )
         if columns is None:
-            columns = DEFAULT_COLUMNS.copy()
+            columns = [
+                column for column in DEFAULT_VISIBLE_COLUMNS if column in available
+            ]
+        else:
+            columns = [column for column in columns if column in available]
         if "leads.pii.view" not in current.permissions:
-            columns = [column for column in columns if column not in ("email", "phone")]
-        return {"columns": columns}
+            columns = [column for column in columns if not is_pii_table_column(column)]
+        return {"columns": columns or ["name"]}
 
 
 @router.put("/lead-table-preferences")
 async def save_table_preferences(body: ColumnPreferences, request: Request, user: User):
-    if (
-        len(set(body.columns)) != len(body.columns)
-        or "name" not in body.columns
-        or any(column not in TABLE_COLUMNS for column in body.columns)
-    ):
+    if len(set(body.columns)) != len(body.columns):
         raise AccessError(422, "invalid_lead_table_columns")
     async with access(request, user, "leads.view") as (connection, current):
+        available = await available_table_columns(connection, current.org_id)
+        if any(column not in available for column in body.columns):
+            raise AccessError(422, "invalid_lead_table_columns")
         columns = body.columns
         if "leads.pii.view" not in current.permissions:
-            columns = [column for column in columns if column not in ("email", "phone")]
+            columns = [column for column in columns if not is_pii_table_column(column)]
+        if not columns:
+            raise AccessError(422, "invalid_lead_table_columns")
         await connection.execute(
             text(
                 "INSERT INTO crm.lead_table_preferences(org_id,membership_id,columns) "

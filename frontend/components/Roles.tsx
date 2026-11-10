@@ -5,7 +5,11 @@ import SelectionPicker from "@/components/SelectionPicker";
 import PermissionGroups from "@/components/PermissionGroups";
 import RolePermissionsView from "@/components/permissions/RolePermissionsView";
 import { useSession } from "@/components/Session";
-import { ErrorNotice, Field, Loading, Pagination } from "@/components/Ui";
+import { ErrorNotice, Field, Loading } from "@/components/Ui";
+import Icon from "@/components/Icon";
+import { DataTable } from "@/components/ui/data-table";
+import { Badge } from "@/components/ui/badge";
+import { IconButton } from "@/components/ui/icon-button";
 import { crm, errorMessage, type Permission, type Role, type Scope } from "@/lib/crm";
 import { usePaged, useResource } from "@/lib/hooks";
 
@@ -19,9 +23,19 @@ export default function Roles({ permissionsOnly = false }: { permissionsOnly?: b
     <div className="alert alert-info">Owners always have full access. For other members, active roles combine permissions, direct deny overrides win, and the visibility override replaces role scope.</div>
     <ErrorNotice error={list.error || catalog.error} />
     {editing && catalog.data && <RoleEditor key={typeof editing === "string" ? "new" : editing.id} role={typeof editing === "string" ? undefined : editing} catalog={catalog.data.data} onDone={() => { setEditing(null); list.reload(); setRevision(value => value + 1); }} onCancel={() => setEditing(null)} />}
-    {permissionsOnly && (catalog.data ? <RolePermissionsView key={revision} catalog={catalog.data.data} onEdit={setEditing} /> : <Loading />)}    {!permissionsOnly && <div className="card">{list.loading ? <Loading /> : list.data?.data.length ? <div className="table-wrap"><table><thead><tr><th>Role</th><th>Type</th><th>Level</th><th>Report to</th><th>Scope</th><th>Permissions</th><th>Status</th><th>Actions</th></tr></thead><tbody>{list.data.data.map(role => <tr key={role.id}><td><strong>{role.name}</strong><div className="small muted">{role.description}</div></td><td>{role.role_type}</td><td>{role.level}</td><td>{role.reports_to_name || "None (top level)"}</td><td><span className="badge">{role.data_scope}</span></td><td>{role.permissions.length} grants</td><td>{role.is_active ? "Active" : "Inactive"}</td><td>{can("roles.manage") && <button className="btn role-action-icon" type="button" aria-label={permissionsOnly ? "Edit permissions" : "Edit"} title={`${permissionsOnly ? "Edit permissions" : "Edit role"}: ${role.name}`} onClick={() => setEditing(role)}>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m16 3 5 5M4 20l4-1L21 6a2.8 2.8 0 0 0-4-4L4 15l-1 6Z" /></svg>
-    </button>}</td></tr>)}</tbody></table></div> : <div className="empty-state"><h3>No custom roles yet</h3><p className="muted">Create a role in the Roles tab before inviting your team.</p></div>}<Pagination page={list.page} previous={list.previous} next={list.next} hasPrevious={list.hasPrevious} hasNext={Boolean(list.data?.next_cursor)} loading={list.loading} /></div>}
+    {permissionsOnly && (catalog.data ? <RolePermissionsView key={revision} catalog={catalog.data.data} onEdit={setEditing} /> : <Loading />)}
+    {!permissionsOnly && <DataTable data={list.data?.data} rowKey={role => role.id} list={list}
+      empty={<div className="empty-state"><h3>No custom roles yet</h3><p className="muted">Create a role in the Roles tab before inviting your team.</p></div>}
+      columns={[
+        { id: "role", meta: { width: "240px" }, header: "Role", accessorFn: role => role.name, enableSorting: true, cell: ({ row }) => <><strong>{row.original.name}</strong><div className="small muted">{row.original.description}</div></> },
+        { id: "type", meta: { width: "100px" }, header: "Type", enableSorting: false, cell: ({ row }) => row.original.role_type },
+        { id: "level", meta: { width: "80px", align: "center" }, header: "Level", accessorFn: role => role.level, enableSorting: true },
+        { id: "reports", meta: { width: "170px" }, header: "Report to", enableSorting: false, cell: ({ row }) => row.original.reports_to_name || "None (top level)" },
+        { id: "scope", meta: { width: "100px" }, header: "Scope", enableSorting: false, cell: ({ row }) => <Badge>{row.original.data_scope}</Badge> },
+        { id: "permissions", meta: { width: "140px" }, header: "Permissions", accessorFn: role => role.permissions.length, enableSorting: true, cell: ({ row }) => `${row.original.permissions.length} grants` },
+        { id: "status", meta: { width: "110px" }, header: "Status", enableSorting: false, cell: ({ row }) => <Badge variant={row.original.is_active ? "success" : "outline"}>{row.original.is_active ? "Active" : "Inactive"}</Badge> },
+        { id: "actions", meta: { width: "90px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => can("roles.manage") ? <IconButton label="Edit" onClick={() => setEditing(row.original)}><Icon name="edit" size={18} /></IconButton> : null },
+      ]} />}
   </>;
 }
 function RoleEditor({ role, catalog, onDone, onCancel }: { role?: Role; catalog: Permission[]; onDone: () => void; onCancel: () => void }) {

@@ -1,23 +1,19 @@
 "use client";
 
-import { useEffect } from "react";
 import Icon from "@/components/Icon";
+import { Dialog as UiDialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
 
-export default function Dialog({ title, subtitle, logo, closeLabel, wide, actions, onClose, children }: {
-  title: string; subtitle: string; logo?: React.ReactNode; closeLabel: string; wide?: boolean; actions?: React.ReactNode; onClose: () => void; children: React.ReactNode;
+export default function Dialog({ title, subtitle, logo, closeLabel, wide, fixed, actions, onClose, children }: {
+  title: string; subtitle: string; logo?: React.ReactNode; closeLabel: string; wide?: boolean; fixed?: boolean; actions?: React.ReactNode; onClose: () => void; children: React.ReactNode;
 }) {
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose]);
-  return <div className="marketplace-overlay" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className={`marketplace-dialog${wide ? " marketplace-dialog-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="marketplace-dialog-title">
+  return <UiDialog open onOpenChange={open => { if (!open) onClose(); }}>
+    <DialogContent size={wide ? "lg" : "md"} className={fixed ? "ui-dialog-fixed" : undefined} hideClose>
       <div className="marketplace-dialog-header">
-        <div className="marketplace-title">{logo}<div><h2 id="marketplace-dialog-title">{title}</h2><span className="small muted">{subtitle}</span></div></div>
-        <div className="dialog-actions">{actions}<button className="btn icon-btn" type="button" aria-label={closeLabel} title="Close" onClick={onClose}><Icon name="close" /></button></div>
+        <div className="marketplace-title">{logo}<div><DialogTitle>{title}</DialogTitle><DialogDescription>{subtitle}</DialogDescription></div></div>
+        <div className="dialog-actions">{actions}<IconButton label={closeLabel} onClick={onClose}><Icon name="close" /></IconButton></div>
       </div>
       {children}
-    </section>
-  </div>;
+    </DialogContent>
+  </UiDialog>;
 }

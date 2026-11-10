@@ -75,9 +75,21 @@ async def roles(
             .mappings()
             .all()
         )
+        total = (
+            await connection.scalar(
+                text(
+                    "SELECT count(*) FROM crm.roles r WHERE r.org_id=:org "
+                    "AND (CAST(:search AS text) IS NULL OR strpos(lower(r.name),lower(:search))>0)"
+                ),
+                {"org": user.org_id, "search": search or None},
+            )
+            if after is None
+            else None
+        )
         return {
             "data": [dict(row) for row in rows[:limit]],
             "next_cursor": rows[limit - 1]["id"] if len(rows) > limit else None,
+            "total": total,
         }
 
 

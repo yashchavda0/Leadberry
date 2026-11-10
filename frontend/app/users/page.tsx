@@ -4,6 +4,10 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Roles from "@/components/Roles";
+import { DataTable } from "@/components/ui/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { ColumnDef } from "@tanstack/react-table";
 import PermissionGroups from "@/components/PermissionGroups";
 import LandingPagePicker from "@/components/LandingPagePicker";
 import SelectionPicker from "@/components/SelectionPicker";
@@ -54,16 +58,17 @@ function Users() {
     {deleting && <section className="card editor-card" aria-label="Confirm user deletion"><h2>Delete user: {deleting.display_name}?</h2><p>This disables workspace access and revokes sessions. Leads, team membership, role grants and history are preserved. Accepted users can be reactivated through Edit access.</p><div className="form-actions"><button className="btn" type="button" disabled={busy} onClick={() => { setDeleting(null); setError(""); }}>Cancel</button><button className="btn btn-danger" type="button" disabled={busy} onClick={() => void deactivate()}>{busy ? "Deleting..." : "Confirm delete"}</button></div></section>}
     {inviting && <InviteEditor onClose={() => { setInviting(false); list.reload(); }} />}
     {editing && <MemberEditor key={editing.id} member={editing} onClose={() => { setEditing(null); list.reload(); }} />}
-    <div className="card">{list.loading ? <Loading /> : list.data && <div className="table-wrap"><table>    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Level</th><th>Status</th><th>Actions</th><th>Rights</th><th>Reporting to</th></tr></thead><tbody>{list.data.data.map(member => <tr key={member.id}>
-          <td><strong>{member.display_name}</strong>{member.id === identity?.membership_id && <span className="badge">You</span>}{member.is_owner && <span className="badge">Owner</span>}</td>
-          <td>{member.email}</td>
-          <td>{member.is_owner ? "Owner" : memberRoles(member).map(role => role.name).join(", ") || "—"}</td>
-          <td>{member.is_owner ? "—" : memberRoles(member).length ? Math.min(...memberRoles(member).map(role => role.level)) : "—"}</td>
-          <td><span className={`badge ${member.status === "active" ? "badge-SUCCESS" : ""}`}>{member.status}</span></td>
-      <td><div className="actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <button className="btn" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}>Edit access</button>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <button className="btn btn-danger" type="button" onClick={() => { setDeleting(member); setError(""); }}>Delete</button>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div></td>
-            <td>{member.is_owner ? "Full Owner access" : `${member.visibility_override || "From roles"} / ${Object.keys(member.permission_overrides).length} overrides`}</td>
-            <td>{member.is_owner ? "—" : [...new Set(memberRoles(member).map(role => role.reports_to_name).filter((name): name is string => Boolean(name)))].join(", ") || "—"}</td>
-          </tr>)}</tbody></table></div>}<Pagination page={list.page} previous={list.previous} next={list.next} hasPrevious={list.hasPrevious} hasNext={Boolean(list.data?.next_cursor)} loading={list.loading} /></div>
+    <DataTable data={list.data?.data} rowKey={member => member.id} list={list}
+      columns={[
+        { id: "name", meta: { width: "230px" }, header: "Name", accessorFn: member => member.display_name, enableSorting: true, cell: ({ row }) => { const member = row.original; return <><strong>{member.display_name}</strong>{member.id === identity?.membership_id && <Badge variant="info">You</Badge>}{member.is_owner && <Badge>Owner</Badge>}</>; } },
+        { id: "email", meta: { width: "240px" }, header: "Email", accessorFn: member => member.email, enableSorting: true },
+        { id: "role", meta: { width: "160px" }, header: "Role", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Owner" : memberRoles(row.original).map(role => role.name).join(", ") || "—" },
+        { id: "level", meta: { width: "80px", align: "center" }, header: "Level", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : memberRoles(row.original).length ? Math.min(...memberRoles(row.original).map(role => role.level)) : "—" },
+        { id: "status", meta: { width: "110px" }, header: "Status", accessorFn: member => member.status, enableSorting: true, cell: ({ row }) => <Badge variant={row.original.status === "active" ? "success" : "outline"}>{row.original.status}</Badge> },
+        { id: "actions", meta: { width: "210px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <Button variant="outline" size="sm" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}>Edit access</Button>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <Button variant="destructive" size="sm" onClick={() => { setDeleting(member); setError(""); }}>Delete</Button>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div>; } },
+        { id: "rights", meta: { width: "190px" }, header: "Rights", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Full Owner access" : `${row.original.visibility_override || "From roles"} / ${Object.keys(row.original.permission_overrides).length} overrides` },
+        { id: "reporting", meta: { width: "170px" }, header: "Reporting to", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : [...new Set(memberRoles(row.original).map(role => role.reports_to_name).filter((name): name is string => Boolean(name)))].join(", ") || "—" },
+      ] satisfies ColumnDef<Member, unknown>[]} />
   </>;
 }
 function InviteEditor({ onClose }: { onClose: () => void }) {
@@ -108,7 +113,7 @@ function MemberEditor({ member, onClose }: { member: Member; onClose: () => void
 function Teams() {
   const list = usePaged<Team>("/teams");
   const [editing, setEditing] = useState<Team | "new" | null>(null);
-  return <section className="card"><div className="page-header"><div><h2>Organization teams</h2><p className="small muted">Only Owners manage team membership. Team scope includes leads explicitly assigned to a member's active teams.</p></div><button className="btn" onClick={() => setEditing("new")}>+ Create team</button></div><ErrorNotice error={list.error} />{editing && <TeamEditor key={typeof editing === "string" ? "new" : editing.id} team={typeof editing === "string" ? undefined : editing} onClose={() => { setEditing(null); list.reload(); }} />}{list.loading ? <Loading /> : list.data?.data.map(team => <div className="source-row" key={team.id}><span>{team.name} <span className="badge">{team.is_active ? "Active" : "Inactive"}</span></span><span className="muted">{team.membership_ids.length} members</span><button className="btn" onClick={() => setEditing(team)}>Edit</button></div>)}<Pagination page={list.page} previous={list.previous} next={list.next} hasPrevious={list.hasPrevious} hasNext={Boolean(list.data?.next_cursor)} loading={list.loading} /></section>;
+  return <section className="card"><div className="page-header"><div><h2>Organization teams</h2><p className="small muted">Only Owners manage team membership. Team scope includes leads explicitly assigned to a member's active teams.</p></div><button className="btn" onClick={() => setEditing("new")}>+ Create team</button></div><ErrorNotice error={list.error} />{editing && <TeamEditor key={typeof editing === "string" ? "new" : editing.id} team={typeof editing === "string" ? undefined : editing} onClose={() => { setEditing(null); list.reload(); }} />}{list.loading ? <Loading /> : list.data?.data.map(team => <div className="source-row" key={team.id}><span>{team.name} <span className="badge">{team.is_active ? "Active" : "Inactive"}</span></span><span className="muted">{team.membership_ids.length} members</span><button className="btn" onClick={() => setEditing(team)}>Edit</button></div>)}<Pagination list={list} /></section>;
 }
 function TeamEditor({ team, onClose }: { team?: Team; onClose: () => void }) {
   const [members, setMembers] = useState(team?.membership_ids || []);

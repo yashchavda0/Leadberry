@@ -9,7 +9,10 @@ INTERVALS = [300, 600, 900, 1200, 1800, 3600]
 
 
 def schedule(
-    window_unit: str, window_days: int, history_days: int, empty_stop_windows: int | None
+    window_unit: str,
+    window_days: int,
+    history_days: int,
+    empty_stop_windows: int | None,
 ) -> dict:
     return {
         "min_interval_seconds": 300,

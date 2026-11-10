@@ -1,5 +1,6 @@
 "use client";
 
+import ScrollArea from "@/components/ScrollArea";
 import { useState } from "react";
 import { Guard, useSession } from "@/components/Session";
 import { ErrorNotice, Field, Loading } from "@/components/Ui";
@@ -102,9 +103,9 @@ function StatusEditor({ status, options, canEdit, canAssign, onSaved }: {
       {canAssign && <form className="status-rules-form" onSubmit={saveRules}><h3>Entry rules</h3>
         <Field label="Tag to add when a lead enters this status"><input className="input" name="tag_on_entry" maxLength={50} defaultValue={status.tag_on_entry || ""} /></Field>
         <label className="check-row"><input type="checkbox" name="auto_assign" defaultChecked={status.auto_assign} />Automatically assign by round robin</label>
-        <fieldset className="status-choice-group"><legend>Eligible users</legend>{options?.members.map(member => <label className="check-row" key={member.id}><input type="checkbox" name="member_id" value={member.id} defaultChecked={status.member_ids.includes(member.id)} />{member.display_name}</label>)}</fieldset>
-        <fieldset className="status-choice-group"><legend>Allowed roles (empty means any role)</legend>{options?.roles.map(role => <label className="check-row" key={role.id}><input type="checkbox" name="role_id" value={role.id} defaultChecked={status.role_ids.includes(role.id)} />{role.name}</label>)}</fieldset>
-        <fieldset className="status-choice-group"><legend>Required attributes</legend>{requiredChoices.map(field => <label className="check-row" key={field.key}><input type="checkbox" name="required_field" value={field.key} defaultChecked={status.required_fields.includes(field.key)} />{field.label}</label>)}</fieldset>
+        <fieldset className="status-choice-group"><legend>Eligible users</legend><ScrollArea maxHeight={250} label="Eligible users">{options?.members.map(member => <label className="check-row" key={member.id}><input type="checkbox" name="member_id" value={member.id} defaultChecked={status.member_ids.includes(member.id)} />{member.display_name}</label>)}</ScrollArea></fieldset>
+        <fieldset className="status-choice-group"><legend>Allowed roles (empty means any role)</legend><ScrollArea maxHeight={250} label="Allowed roles">{options?.roles.map(role => <label className="check-row" key={role.id}><input type="checkbox" name="role_id" value={role.id} defaultChecked={status.role_ids.includes(role.id)} />{role.name}</label>)}</ScrollArea></fieldset>
+        <fieldset className="status-choice-group"><legend>Required attributes</legend><ScrollArea maxHeight={250} label="Required attributes">{requiredChoices.map(field => <label className="check-row" key={field.key}><input type="checkbox" name="required_field" value={field.key} defaultChecked={status.required_fields.includes(field.key)} />{field.label}</label>)}</ScrollArea></fieldset>
         <button className="btn btn-primary" disabled={busy}>Save entry rules</button>
       </form>}
       {!canAssign && <p className="small muted">Assignment and required-field rules need assignment_rules.manage.</p>}

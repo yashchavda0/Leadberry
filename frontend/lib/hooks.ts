@@ -49,7 +49,12 @@ export function usePaged<T>(path: string | null) {
   }, [path]);
   // The API only counts on the first page, so remember it while paging.
   useEffect(() => {
-    if (cursor === null && resource.data && typeof resource.data.total === "number") setTotal(resource.data.total);
+    if (
+      cursor === null &&
+      resource.data &&
+      typeof resource.data.total === "number"
+    )
+      setTotal(resource.data.total);
   }, [cursor, resource.data]);
   function next() {
     if (resource.data?.next_cursor) {

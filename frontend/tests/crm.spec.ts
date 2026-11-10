@@ -390,12 +390,30 @@ test("lead table preferences and typed required fields work in the manual lead f
   let created: Record<string, unknown> | null = null;
   let exportedQuery = "";
   let archiveBody: unknown = null;
-  let statusChange: { status_id: string; note: string; next_follow_up_at?: string | null; row_version: number } | null = null;
+  let statusChange: {
+    status_id: string;
+    note: string;
+    next_follow_up_at?: string | null;
+    row_version: number;
+  } | null = null;
+  const statusChanges: {
+    status_id: string;
+    note: string;
+    next_follow_up_at?: string | null;
+    row_version: number;
+  }[] = [];
   let currentStatusId = "status-new";
   let currentStatusName = "New";
   let currentFollowUp: string | null = null;
   let rowVersion = 1;
-  let statusHistory: { id: string; from_status: string; to_status: string; note: string; actor_name: string; created_at: string }[] = [];
+  let statusHistory: {
+    id: string;
+    from_status: string;
+    to_status: string;
+    note: string;
+    actor_name: string;
+    created_at: string;
+  }[] = [];
   page.on("pageerror", (error) => {
     throw error;
   });
@@ -453,6 +471,13 @@ test("lead table preferences and typed required fields work in the manual lead f
             id: "status-qualified",
             name: "Qualified",
             color: "#7c3aed",
+            type: "working",
+            required_fields: [],
+          },
+          {
+            id: "status-contacted",
+            name: "Contacted",
+            color: "#2563eb",
             type: "working",
             required_fields: [],
           },
@@ -519,15 +544,26 @@ test("lead table preferences and typed required fields work in the manual lead f
       return fulfill({ data: statusHistory });
     if (path === `/leads/${leadId}/status` && method === "POST") {
       statusChange = request.postDataJSON();
-      const nextStatus = statusChange.status_id === "status-qualified" ? "Qualified" : statusChange.status_id === "status-follow-up" ? "Follow-up scheduled" : "New";
-      statusHistory = [...statusHistory, {
-        id: randomUUID(),
-        from_status: currentStatusName,
-        to_status: nextStatus,
-        note: statusChange.note,
-        actor_name: "Owner",
-        created_at: new Date().toISOString(),
-      }];
+      statusChanges.push(statusChange);
+      const nextStatus =
+        statusChange.status_id === "status-qualified"
+          ? "Qualified"
+          : statusChange.status_id === "status-contacted"
+            ? "Contacted"
+            : statusChange.status_id === "status-follow-up"
+              ? "Follow-up scheduled"
+              : "New";
+      statusHistory = [
+        ...statusHistory,
+        {
+          id: randomUUID(),
+          from_status: currentStatusName,
+          to_status: nextStatus,
+          note: statusChange.note,
+          actor_name: "Owner",
+          created_at: new Date().toISOString(),
+        },
+      ];
       currentStatusId = statusChange.status_id;
       currentStatusName = nextStatus;
       currentFollowUp = statusChange.next_follow_up_at || null;
@@ -593,7 +629,8 @@ test("lead table preferences and typed required fields work in the manual lead f
         state: "Maharashtra",
         address: "",
         product: "Equipment",
-        enquiry: "Quote request",
+        enquiry:
+          '<p>Quote <strong>request</strong></p><script>window.__leadEnquiryXss = true</script><img src="x" onerror="window.__leadEnquiryXss = true">',
         source_provider: "manual",
         source_record_id: null,
         status_id: currentStatusId,
@@ -618,23 +655,82 @@ test("lead table preferences and typed required fields work in the manual lead f
   });
 
   await page.goto(`/leads/${leadId}`);
-  await expect(page.getByRole("heading", { name: "Manual lead", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Manual lead", exact: true }),
+  ).toBeVisible();
   await page.getByRole("combobox", { name: "New status", exact: true }).click();
-  await page.getByRole("option", { name: "Follow-up scheduled", exact: true }).click();
-  await expect(page.getByLabel("Follow-up time")).toBeVisible();
-  await page.getByLabel("Follow-up time").fill("2026-11-12T10:30");
-  const expectedFollowUp = await page.locator("#lead-status-followup").evaluate((element: HTMLInputElement) => new Date(element.value).toISOString());
-  await page.locator("#lead-status-note").fill("Customer requested pricing.");
-  await page.getByRole("button", { name: "Update status", exact: true }).click();
-  await expect(page.getByText("Lead status updated.")).toBeVisible();
+  await page
+    .getByRole("option", { name: "Follow-up scheduled", exact: true })
+    .click();
+  await expect(page.getByLabel("Next contact date & time")).toBeVisible();
+  await page.getByLabel("Next contact date & time").fill("2026-11-12T10:30");
+  const expectedFollowUp = await page
+    .locator("#lead-status-followup")
+    .evaluate((element: HTMLInputElement) =>
+      new Date(element.value).toISOString(),
+    );
+  const statusNotes = [
+    "Customer requested pricing.",
+    "No answer; retry this afternoon.",
+    "Customer asked for a quote.",
+  ];
+  await page.locator("#lead-status-note").fill(statusNotes[0]);
+  await page
+    .getByRole("button", { name: "Update status", exact: true })
+    .click();
+  await expect(
+    page
+      .locator(".lead-current-status")
+      .getByText("Follow-up scheduled", { exact: true }),
+  ).toBeVisible();
   expect(statusChange).toMatchObject({
     status_id: "status-follow-up",
-    note: "Customer requested pricing.",
+    note: statusNotes[0],
     next_follow_up_at: expectedFollowUp,
     row_version: 1,
   });
+  for (const [statusName, note] of [
+    ["Contacted", statusNotes[1]],
+    ["Qualified", statusNotes[2]],
+  ] as const) {
+    await page
+      .getByRole("combobox", { name: "New status", exact: true })
+      .click();
+    await page.getByRole("option", { name: statusName, exact: true }).click();
+    await page.locator("#lead-status-note").fill(note);
+    await page
+      .getByRole("button", { name: "Update status", exact: true })
+      .click();
+    await expect(
+      page
+        .locator(".lead-current-status")
+        .getByText(statusName, { exact: true }),
+    ).toBeVisible();
+  }
+  expect(statusChanges).toHaveLength(3);
   await page.getByRole("tab", { name: "Timeline", exact: true }).click();
-  await expect(page.getByText("Customer requested pricing.", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Status changed: New to Follow-up scheduled"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Status changed: Follow-up scheduled to Contacted"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Status changed: Contacted to Qualified"),
+  ).toBeVisible();
+  for (const note of statusNotes)
+    await expect(page.getByText(note, { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Enquiry", exact: true }).click();
+  await expect(page.locator(".lead-enquiry-html strong")).toHaveText("request");
+  await expect(page.locator(".lead-enquiry-html script")).toHaveCount(0);
+  await expect(page.locator(".lead-enquiry-html img")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __leadEnquiryXss?: boolean }).__leadEnquiryXss,
+    ),
+  ).toBeUndefined();
+  await page.getByRole("tab", { name: "Timeline", exact: true }).click();
   currentStatusId = "status-new";
   currentStatusName = "New";
   currentFollowUp = null;
@@ -653,7 +749,9 @@ test("lead table preferences and typed required fields work in the manual lead f
   ).toBeVisible();
   await expect(page.getByLabel("Tag", { exact: true })).not.toBeVisible();
   await page.getByLabel("Search", { exact: true }).fill("Example");
-  await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("status-new");
+  await page
+    .getByRole("combobox", { name: "Status", exact: true })
+    .selectOption("status-new");
   await page.getByRole("button", { name: "Assigned to", exact: true }).click();
   await page.getByLabel("Search assigned to").fill("Owner");
   await expect
@@ -662,14 +760,14 @@ test("lead table preferences and typed required fields work in the manual lead f
     )
     .toBe(1);
   await page.getByRole("button", { name: "Owner", exact: true }).click();
-  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Remove Search filter" }),
   ).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export to Excel" }).click();
+  await page.getByRole("button", { name: "Excel", exact: true }).click();
   const exported = await downloadPromise;
-  expect(exported.suggestedFilename()).toBe("filtered-leads.xlsx");
+  expect(exported.suggestedFilename()).toBe("leads.xlsx");
   expect(new URLSearchParams(exportedQuery).get("q")).toBe("Example");
   expect(new URLSearchParams(exportedQuery).get("status_id")).toBe(
     "status-new",
@@ -678,18 +776,24 @@ test("lead table preferences and typed required fields work in the manual lead f
   expect(new URLSearchParams(exportedQuery).has("limit")).toBe(false);
   await page.getByRole("button", { name: "Remove Search filter" }).click();
   await expect(page.getByLabel("Search", { exact: true })).toHaveValue("");
-  await page.getByRole("button", { name: "Clear", exact: true }).click();
-  await page.locator(".lead-advanced-filters > summary").click();
-  await page.getByLabel("Received from").fill("2026-11-08");
-  await page.getByLabel("Received through").fill("2026-11-01");
-  await page.getByRole("button", { name: "Apply filters" }).click();
-  expect(
-    await page
-      .getByLabel("Received through")
-      .evaluate((element: HTMLInputElement) => element.validity.valid),
-  ).toBe(false);
-  await page.getByRole("button", { name: "Clear", exact: true }).click();
-  await page.locator(".lead-advanced-filters > summary").click();
+  await page.getByRole("button", { name: "Clear all", exact: true }).click();
+  await page
+    .getByRole("button", { name: "More filters", exact: false })
+    .click();
+  await page.getByLabel("Received from").click();
+  await page
+    .getByRole("grid")
+    .getByRole("button", { name: "20", exact: true })
+    .click();
+  await page.getByLabel("Received through").click();
+  await expect(
+    page.getByRole("grid").getByRole("button", { name: "19", exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Apply filters", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Clear all", exact: true }).click();
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator(".lead-index").first()).toHaveText("26");
   await page.getByRole("button", { name: "Previous", exact: true }).click();
@@ -725,10 +829,12 @@ test("lead table preferences and typed required fields work in the manual lead f
   await page.getByRole("link", { name: "New lead", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Manual lead");
   await page.getByLabel("Company", { exact: true }).fill("Example Co");
-  await page.getByLabel("Phone", { exact: true }).fill("123456");
+  await page.getByLabel(/^Phone/).fill("123456");
   await page.getByLabel(/^Budget/).fill("45.5");
-  await page.getByLabel(/^Consent/).selectOption("false");
-  await page.getByLabel(/^Segment/).selectOption("Retail");
+  await page.getByRole("combobox", { name: "Consent" }).click();
+  await page.getByRole("option", { name: "No", exact: true }).click();
+  await page.getByRole("combobox", { name: "Segment" }).click();
+  await page.getByRole("option", { name: "Retail", exact: true }).click();
   await page
     .getByLabel("Tags", { exact: true })
     .fill("Priority, Retail, Priority");
@@ -750,11 +856,18 @@ test("lead table preferences and typed required fields work in the manual lead f
     tags: ["Priority", "Retail"],
   });
   await page.getByLabel("Name", { exact: true }).fill("Manual lead");
-  await page.getByLabel("Phone", { exact: true }).fill("123456");
+  await page.getByLabel(/^Phone/).fill("123456");
   await page.getByLabel(/^Budget/).fill("45.5");
-  await page.getByLabel(/^Consent/).selectOption("false");
-  await page.getByLabel(/^Segment/).selectOption("Retail");
+  await page.getByRole("combobox", { name: "Consent" }).click();
+  await page.getByRole("option", { name: "No", exact: true }).click();
+  await page.getByRole("combobox", { name: "Segment" }).click();
+  await page.getByRole("option", { name: "Retail", exact: true }).click();
   await page.getByRole("button", { name: "Create lead", exact: true }).click();
+  expect(created).toMatchObject({
+    name: "Manual lead",
+    assigned_membership_id: memberId,
+    custom_fields: { budget: 45.5, consent: false, segment: "Retail" },
+  });
   await expect(
     page.getByRole("heading", { name: "Manual lead", exact: true }),
   ).toBeVisible();
@@ -1011,22 +1124,67 @@ test("owner onboarding, roles, invitations, leads, restricted member and respons
   await page.getByLabel(/^Tags/).fill("urgent, browser");
   await page
     .getByLabel("Enquiry", { exact: true })
-    .fill("Private quotation details");
+    .fill(
+      '<p>Private quotation <strong>details</strong></p><script>window.__leadEnquiryXss = true</script><img src="x" onerror="window.__leadEnquiryXss = true">',
+    );
   await page.getByLabel("Restricted Member", { exact: true }).check();
   await page.getByRole("button", { name: "Create lead", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Browser pump enquiry" }),
   ).toBeVisible();
   const leadUrl = page.url();
-  const statusNote = "Customer requested a formal quote.";
-  await page.getByRole("combobox", { name: "New status", exact: true }).click();
-  await page.getByRole("option", { name: "Qualified", exact: true }).click();
-  await page.locator("#lead-status-note").fill(statusNote);
-  await page.getByRole("button", { name: "Update status", exact: true }).click();
-  await expect(page.getByText("Lead status updated.")).toBeVisible();
+  const statusNotes = [
+    "Retry contact on Thursday morning.",
+    "Called, no answer; try again later.",
+    "Buyer requested a formal quote.",
+  ];
+  async function changeStatus(
+    name: string,
+    note: string,
+    nextContact?: string,
+  ) {
+    await expect(
+      page.getByRole("combobox", { name: "New status", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("combobox", { name: "New status", exact: true })
+      .click();
+    await page.getByRole("option", { name, exact: true }).click();
+    if (nextContact) {
+      await expect(page.locator("#lead-status-followup")).toBeVisible();
+      await page.locator("#lead-status-followup").fill(nextContact);
+    }
+    await page.locator("#lead-status-note").fill(note);
+    await page
+      .getByRole("button", { name: "Update status", exact: true })
+      .click();
+    await expect(
+      page.locator(".lead-current-status").getByText(name, { exact: true }),
+    ).toBeVisible();
+  }
+  await changeStatus("Pending", statusNotes[0], "2026-11-12T10:30");
+  await changeStatus("Contacted", statusNotes[1]);
+  await changeStatus("Qualified", statusNotes[2]);
   await page.getByRole("tab", { name: "Timeline", exact: true }).click();
-  await expect(page.getByText("Status changed: New to Qualified")).toBeVisible();
-  await expect(page.getByText(statusNote, { exact: true })).toBeVisible();
+  await expect(page.getByText("Status changed: New to Pending")).toBeVisible();
+  await expect(
+    page.getByText("Status changed: Pending to Contacted"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Status changed: Contacted to Qualified"),
+  ).toBeVisible();
+  for (const note of statusNotes)
+    await expect(page.getByText(note, { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Enquiry", exact: true }).click();
+  await expect(page.locator(".lead-enquiry-html strong")).toHaveText("details");
+  await expect(page.locator(".lead-enquiry-html script")).toHaveCount(0);
+  await expect(page.locator(".lead-enquiry-html img")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __leadEnquiryXss?: boolean }).__leadEnquiryXss,
+    ),
+  ).toBeUndefined();
   await page.getByRole("tab", { name: "Lead Details", exact: true }).click();
   await page.getByRole("button", { name: "Edit lead", exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill("Updated browser lead");
@@ -1051,9 +1209,12 @@ test("owner onboarding, roles, invitations, leads, restricted member and respons
   ).toHaveCount(0);
   await memberPage.getByRole("tab", { name: "Timeline", exact: true }).click();
   await expect(
-    memberPage.getByText("Note restricted by contact permission.", { exact: true }),
-  ).toBeVisible();
-  await expect(memberPage.getByText(statusNote, { exact: true })).toHaveCount(0);
+    memberPage.getByText("Note restricted by contact permission.", {
+      exact: true,
+    }),
+  ).toHaveCount(3);
+  for (const note of statusNotes)
+    await expect(memberPage.getByText(note, { exact: true })).toHaveCount(0);
   await expect(
     memberPage.getByRole("button", { name: "Edit lead", exact: true }),
   ).toHaveCount(0);

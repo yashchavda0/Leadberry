@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Icon from "./Icon";
 import ScrollArea from "./ScrollArea";
+import { Tip } from "./ui/tip";
 import { formatDate, type Lead, type LeadCustomField } from "@/lib/crm";
 
 export const LEAD_COLUMNS = [
@@ -46,9 +47,9 @@ export default function LeadsTable({ leads, columns, customFields, onArchive, on
   const hasActions = Boolean(onArchive || onRestore);
   return <ScrollArea direction="both" maxHeight="65vh" label="Leads table"><table className="leads-table"><thead><tr><th scope="col">Sr. No.</th>{visible.map(column => <th scope="col" key={column.key}>{column.label}</th>)}{hasActions && <th scope="col" className="lead-actions-col">Actions</th>}</tr></thead><tbody>
     {leads.map((lead, index) => <tr key={lead.id}><td className="lead-index">{offset + index + 1}</td>{visible.map(column => <td className={`lead-cell-${column.key}`} key={column.key}>{renderCell(column.key, lead)}</td>)}{hasActions && <td className="lead-actions-col"><div className="actions lead-row-actions">
-      <Link className="btn lead-icon-button" href={`/leads/${lead.id}`} aria-label={`View ${lead.name}`} title={`View ${lead.name}`}><Icon name="external" /></Link>
-      {!lead.archived_at && canArchive && onArchive && <button className="btn lead-icon-button" aria-label={`Archive ${lead.name}`} title={`Archive ${lead.name}`} disabled={busyId === lead.id} onClick={() => onArchive(lead)}><Icon name="history" /></button>}
-      {lead.archived_at && canRestore && onRestore && <button className="btn lead-icon-button" aria-label={`Restore ${lead.name}`} title={`Restore ${lead.name}`} disabled={busyId === lead.id} onClick={() => onRestore(lead)}><Icon name="refresh" /></button>}
+      <Tip label={`View ${lead.name}`}><Link className="btn lead-icon-button" href={`/leads/${lead.id}`} aria-label={`View ${lead.name}`}><Icon name="external" /></Link></Tip>
+      {!lead.archived_at && canArchive && onArchive && <Tip label={`Archive ${lead.name}`} disabled={busyId === lead.id}><button className="btn lead-icon-button" aria-label={`Archive ${lead.name}`} disabled={busyId === lead.id} onClick={() => onArchive(lead)}><Icon name="history" /></button></Tip>}
+      {lead.archived_at && canRestore && onRestore && <Tip label={`Restore ${lead.name}`} disabled={busyId === lead.id}><button className="btn lead-icon-button" aria-label={`Restore ${lead.name}`} disabled={busyId === lead.id} onClick={() => onRestore(lead)}><Icon name="refresh" /></button></Tip>}
     </div></td>}</tr>)}
   </tbody></table></ScrollArea>;
 }

@@ -122,6 +122,19 @@ export type Organization = {
   name: string;
   timezone: string;
   status: string;
+  logo_url: string | null;
+  website: string | null;
+  industry: string | null;
+  company_size: string | null;
+  business_email: string | null;
+  business_phone: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string;
+  currency: string;
+  gstin: string | null;
 };
 export type Page<T> = {
   data: T[];
@@ -394,7 +407,7 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await response.text();
   let data: {
     code?: string;
-    errors?: { loc: (string | number)[]; msg: string }[];
+    errors?: { loc: (string | number)[]; msg: string; type?: string }[];
   };
   try {
     data = JSON.parse(text);
@@ -419,7 +432,15 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
       window.dispatchEvent(new Event("crm-session-expired"));
     }
     const validation = data.errors
-      ?.map((item) => `${item.loc.slice(1).join(".")}: ${item.msg}`)
+      ?.map((item) => {
+        if (
+          item.loc.at(-1) === "organization_slug" &&
+          item.type === "string_pattern_mismatch"
+        ) {
+          return "Workspace slug must be 3 to 63 characters, start with a lowercase letter or number, and contain only lowercase letters, numbers, or hyphens.";
+        }
+        return `${item.loc.slice(1).join(".")}: ${item.msg}`;
+      })
       .join("; ");
     throw new ApiError(
       response.status,

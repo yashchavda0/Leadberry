@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Roles from "@/components/Roles";
 import { DataTable } from "@/components/ui/data-table";
+import { useNotify } from "@/components/Notifications";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -43,19 +44,20 @@ function Users() {
   const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState<Member | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const notify = useNotify();
   async function deactivate() {
     if (!deleting) return;
-    setBusy(true); setError("");
+    setBusy(true);
     try {
       await crm(`/memberships/${deleting.id}`, { method: "DELETE" });
+      notify.error(`${deleting.display_name} no longer has access. Their leads and history are kept.`, { title: "User deleted" });
       setDeleting(null); setEditing(null); list.reload();
-    } catch (error) { setError(errorMessage(error)); }
+    } catch (error) { notify.error(errorMessage(error), { title: "User could not be deleted" }); }
     finally { setBusy(false); }
   }
   return <><div className="page-header"><div><h2>Users</h2><p className="muted">Invite colleagues, assign roles and select their landing pages.</p></div>{can("users.manage") && <button className="btn btn-primary" onClick={() => { setInviting(true); setEditing(null); }}>+ Invite user</button>}</div>
-    <ErrorNotice error={error || list.error} />
-    {deleting && <section className="card editor-card" aria-label="Confirm user deletion"><h2>Delete user: {deleting.display_name}?</h2><p>This disables workspace access and revokes sessions. Leads, team membership, role grants and history are preserved. Accepted users can be reactivated through Edit access.</p><div className="form-actions"><button className="btn" type="button" disabled={busy} onClick={() => { setDeleting(null); setError(""); }}>Cancel</button><button className="btn btn-danger" type="button" disabled={busy} onClick={() => void deactivate()}>{busy ? "Deleting..." : "Confirm delete"}</button></div></section>}
+    <ErrorNotice error={list.error} />
+    {deleting && <section className="card editor-card" aria-label="Confirm user deletion"><h2>Delete user: {deleting.display_name}?</h2><p>This disables workspace access and revokes sessions. Leads, team membership, role grants and history are preserved. Accepted users can be reactivated through Edit access.</p><div className="form-actions"><button className="btn" type="button" disabled={busy} onClick={() => { setDeleting(null); }}>Cancel</button><button className="btn btn-danger" type="button" disabled={busy} onClick={() => void deactivate()}>{busy ? "Deleting..." : "Confirm delete"}</button></div></section>}
     {inviting && <InviteEditor onClose={() => { setInviting(false); list.reload(); }} />}
     {editing && <MemberEditor key={editing.id} member={editing} onClose={() => { setEditing(null); list.reload(); }} />}
     <DataTable data={list.data?.data} rowKey={member => member.id} list={list}
@@ -65,7 +67,7 @@ function Users() {
         { id: "role", meta: { width: "160px" }, header: "Role", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Owner" : memberRoles(row.original).map(role => role.name).join(", ") || "—" },
         { id: "level", meta: { width: "80px", align: "center" }, header: "Level", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : memberRoles(row.original).length ? Math.min(...memberRoles(row.original).map(role => role.level)) : "—" },
         { id: "status", meta: { width: "110px" }, header: "Status", accessorFn: member => member.status, enableSorting: true, cell: ({ row }) => <Badge variant={row.original.status === "active" ? "success" : "outline"}>{row.original.status}</Badge> },
-        { id: "actions", meta: { width: "210px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <Button variant="outline" size="sm" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}>Edit access</Button>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <Button variant="destructive" size="sm" onClick={() => { setDeleting(member); setError(""); }}>Delete</Button>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div>; } },
+        { id: "actions", meta: { width: "210px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <Button variant="outline" size="sm" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}>Edit access</Button>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <Button variant="destructive" size="sm" onClick={() => { setDeleting(member); }}>Delete</Button>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div>; } },
         { id: "rights", meta: { width: "190px" }, header: "Rights", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Full Owner access" : `${row.original.visibility_override || "From roles"} / ${Object.keys(row.original.permission_overrides).length} overrides` },
         { id: "reporting", meta: { width: "170px" }, header: "Reporting to", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : [...new Set(memberRoles(row.original).map(role => role.reports_to_name).filter((name): name is string => Boolean(name)))].join(", ") || "—" },
       ] satisfies ColumnDef<Member, unknown>[]} />
@@ -75,18 +77,19 @@ function InviteEditor({ onClose }: { onClose: () => void }) {
   const [roles, setRoles] = useState<string[]>([]);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const notify = useNotify();
   async function invite(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
       const result = await crm<{ invitation_token: string }>("/invitations", { method: "POST", body: JSON.stringify({ email: values.get("email"), display_name: values.get("display_name"), role_ids: roles, visibility_override: values.get("visibility_override") || null, landing_page: values.get("landing_page") || null }) });
       setToken(result.invitation_token);
-    } catch (error) { setError(errorMessage(error)); }
+      notify.success("Deliver the token privately before it expires.", { title: "Invitation created" });
+    } catch (error) { notify.error(errorMessage(error), { title: "Invitation could not be created" }); }
     finally { setBusy(false); }
   }
-  if (token) return <div className="card editor-card"><h2>Invitation ready</h2><div className="alert alert-success" role="status">Deliver this token privately. It expires in 48 hours and is shown only here. Email delivery is not implemented.</div><Field label="Private invitation token"><textarea className="input mono" readOnly value={token} rows={4} autoComplete="off" /></Field><p>Ask the user to open <code>/accept-invite</code> and paste this token. Do not put it in a URL or public message.</p><button className="btn btn-primary" onClick={() => { setToken(""); onClose(); }}>Done / hide token</button></div>;
-  return <form className="card editor-card" onSubmit={invite}><h2>Invite a team member</h2><ErrorNotice error={error} /><div className="form-grid"><Field label="Display name"><input className="input" name="display_name" required maxLength={200} /></Field><Field label="Email"><input className="input" name="email" type="email" required /></Field><Field label="Visibility override"><select className="select" name="visibility_override"><option value="">Use role scope</option><option value="own">Own</option><option value="team">Team</option><option value="all">All organization</option></select></Field><LandingPagePicker /></div><SelectionPicker path="/roles" label="Assign active roles" values={roles} onChange={setRoles} /><p className="small muted">Submitting an existing invited email reissues its invitation and invalidates the previous token. Choose roles carefully.</p><div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? "Creating..." : "Create invitation"}</button></div></form>;
+  if (token) return <div className="card editor-card"><h2>Invitation ready</h2><div className="alert alert-info" role="status">Deliver this token privately. It expires in 48 hours and is shown only here. Email delivery is not implemented.</div><Field label="Private invitation token"><textarea className="input mono" readOnly value={token} rows={4} autoComplete="off" /></Field><p>Ask the user to open <code>/accept-invite</code> and paste this token. Do not put it in a URL or public message.</p><button className="btn btn-primary" onClick={() => { setToken(""); onClose(); }}>Done / hide token</button></div>;
+  return <form className="card editor-card" onSubmit={invite}><h2>Invite a team member</h2><div className="form-grid"><Field label="Display name"><input className="input" name="display_name" required maxLength={200} /></Field><Field label="Email"><input className="input" name="email" type="email" required /></Field><Field label="Visibility override"><select className="select" name="visibility_override"><option value="">Use role scope</option><option value="own">Own</option><option value="team">Team</option><option value="all">All organization</option></select></Field><LandingPagePicker /></div><SelectionPicker path="/roles" label="Assign active roles" values={roles} onChange={setRoles} /><p className="small muted">Submitting an existing invited email reissues its invitation and invalidates the previous token. Choose roles carefully.</p><div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? "Creating..." : "Create invitation"}</button></div></form>;
 }
 function MemberEditor({ member, onClose }: { member: Member; onClose: () => void }) {
   const { identity } = useSession();
@@ -95,17 +98,18 @@ function MemberEditor({ member, onClose }: { member: Member; onClose: () => void
   const [overrides, setOverrides] = useState<Record<string, boolean>>(member.permission_overrides);
   const [scope, setScope] = useState<Scope | "">(member.visibility_override || "");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const notify = useNotify();
   async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
       await crm(`/memberships/${member.id}`, { method: "PUT", body: JSON.stringify({ display_name: values.get("display_name"), status: values.get("status"), role_ids: roles, visibility_override: scope || null, permission_overrides: overrides, landing_page: values.get("landing_page") || null, ...(identity?.is_owner ? { is_owner: values.get("is_owner") === "on" } : {}) }) });
+      notify.success(`${values.get("display_name")}'s access was saved.`, { title: "Access updated" });
       onClose();
-    } catch (error) { setError(errorMessage(error)); }
+    } catch (error) { notify.error(errorMessage(error), { title: "Access could not be saved" }); }
     finally { setBusy(false); }
   }
-  return <form className="card editor-card" onSubmit={save}><h2>Access: {member.display_name}</h2><ErrorNotice error={error || catalog.error} /><div className="form-grid">
+  return <form className="card editor-card" onSubmit={save}><h2>Access: {member.display_name}</h2><ErrorNotice error={catalog.error} /><div className="form-grid">
     <Field label="Display name"><input className="input" name="display_name" required maxLength={200} defaultValue={member.display_name} /></Field>
     <Field label="Login email"><input className="input" type="email" value={member.email} readOnly /><span className="small muted">Shared login identity; email cannot be changed here.</span></Field>
     <Field label="Membership status"><select className="select" name="status" defaultValue={member.status}><option value="active">Active</option><option value="disabled">Disabled (revoke sessions)</option></select></Field><Field label="Visibility override"><select className="select" value={scope} onChange={event => setScope(event.target.value as Scope | "")}><option value="">From roles</option><option value="own">Own</option><option value="team">Team</option><option value="all">All</option></select></Field><LandingPagePicker value={member.landing_page} />{identity?.is_owner && <label className="check-row"><input name="is_owner" type="checkbox" defaultChecked={member.is_owner} />Organization Owner (full access)</label>}</div><SelectionPicker label="Roles" path="/roles" values={roles} onChange={setRoles} /><h3>Direct permission overrides</h3><PermissionGroups catalog={catalog.data?.data || []} overrides={overrides} onOverride={setOverrides} /><p className="small muted">Select all adds direct allows within your grant ceiling; Clear resets a group to role defaults, not denies. Owners retain full access. The final active Owner cannot be demoted or disabled.</p><div className="form-actions"><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy || catalog.loading || Boolean(catalog.error)}>{busy ? "Saving..." : "Save access"}</button></div></form>;
@@ -118,13 +122,13 @@ function Teams() {
 function TeamEditor({ team, onClose }: { team?: Team; onClose: () => void }) {
   const [members, setMembers] = useState(team?.membership_ids || []);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const notify = useNotify();
   async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
-    try { await crm(team ? `/teams/${team.id}` : "/teams", { method: team ? "PUT" : "POST", body: JSON.stringify({ name: values.get("name"), is_active: values.get("is_active") === "on", membership_ids: members }) }); onClose(); }
-    catch (error) { setError(errorMessage(error)); }
+    try { await crm(team ? `/teams/${team.id}` : "/teams", { method: team ? "PUT" : "POST", body: JSON.stringify({ name: values.get("name"), is_active: values.get("is_active") === "on", membership_ids: members }) }); notify.success(`${values.get("name")} ${team ? "updated" : "created"}.`, { title: team ? "Team updated" : "Team created" }); onClose(); }
+    catch (error) { notify.error(errorMessage(error), { title: "Team could not be saved" }); }
     finally { setBusy(false); }
   }
-  return <form className="editor-card" onSubmit={save}><h3>{team ? "Edit team" : "Create team"}</h3><ErrorNotice error={error} /><Field label="Team name"><input className="input" name="name" required maxLength={100} defaultValue={team?.name || ""} /></Field><label className="check-row"><input type="checkbox" name="is_active" defaultChecked={team?.is_active ?? true} />Active</label><SelectionPicker label="Active members (maximum 200)" path="/memberships" values={members} onChange={setMembers} /><div className="form-actions"><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? "Saving..." : "Save team"}</button></div></form>;
+  return <form className="editor-card" onSubmit={save}><h3>{team ? "Edit team" : "Create team"}</h3><Field label="Team name"><input className="input" name="name" required maxLength={100} defaultValue={team?.name || ""} /></Field><label className="check-row"><input type="checkbox" name="is_active" defaultChecked={team?.is_active ?? true} />Active</label><SelectionPicker label="Active members (maximum 200)" path="/memberships" values={members} onChange={setMembers} /><div className="form-actions"><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? "Saving..." : "Save team"}</button></div></form>;
 }

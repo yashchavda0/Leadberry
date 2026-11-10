@@ -53,6 +53,41 @@ class RoleInput(Input):
 class OrganizationInput(Input):
     name: str = Field(min_length=1, max_length=200)
     timezone: str
+    logo_url: str | None = Field(None, max_length=500)
+    website: str | None = Field(None, max_length=300)
+    industry: str | None = Field(None, max_length=100)
+    company_size: Literal["1-10", "11-50", "51-200", "201-500", "500+"] | None = None
+    business_email: EmailStr | None = None
+    business_phone: str | None = Field(None, pattern=r"^[+0-9 ()-]{6,20}$")
+    address: str | None = Field(None, max_length=500)
+    city: str | None = Field(None, max_length=100)
+    state: str | None = Field(None, max_length=100)
+    postal_code: str | None = Field(None, pattern=r"^[A-Za-z0-9 -]{3,12}$")
+    country: str = Field("IN", pattern=r"^[A-Z]{2}$")
+    currency: str = Field("INR", pattern=r"^[A-Z]{3}$")
+    gstin: str | None = Field(
+        None, pattern=r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
+    )
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def blank_to_none(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @field_validator("logo_url", "website")
+    @classmethod
+    def https_only(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith("https://"):
+            raise ValueError("Use a secure https:// address")
+        return value
+
+    @field_validator("business_email")
+    @classmethod
+    def lower_email(cls, value):
+        return str(value).lower() if value else None
 
     @field_validator("timezone")
     @classmethod

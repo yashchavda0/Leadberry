@@ -10,10 +10,10 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
 export const DialogContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { size?: "sm" | "md" | "lg"; hideClose?: boolean }>(
-  ({ className, children, size = "md", hideClose, ...props }, ref) => (
+  ({ className, children, size = "md", hideClose, onOpenAutoFocus, ...props }, ref) => (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="ui-overlay" />
-      <DialogPrimitive.Content ref={ref} className={cn("ui-dialog", `ui-dialog-${size}`, className)} {...props}>
+      <DialogPrimitive.Content ref={ref} className={cn("ui-dialog", `ui-dialog-${size}`, className)} onOpenAutoFocus={event => { if (onOpenAutoFocus) return onOpenAutoFocus(event); /* focus the dialog itself so no button (and its tooltip) is highlighted on open */ event.preventDefault(); (event.currentTarget as HTMLElement).focus(); }} {...props}>
         {children}
         {!hideClose && <DialogPrimitive.Close className="ui-dialog-close" aria-label="Close"><Icon name="close" /></DialogPrimitive.Close>}
       </DialogPrimitive.Content>

@@ -4,6 +4,7 @@ import ScrollArea from "@/components/ScrollArea";
 import { useState } from "react";
 import { Guard, useSession } from "@/components/Session";
 import { ErrorNotice, Field, Loading } from "@/components/Ui";
+import { useNotify } from "@/components/Notifications";
 import { crm, errorMessage, type LeadStatus } from "@/lib/crm";
 import { useResource } from "@/lib/hooks";
 
@@ -28,10 +29,12 @@ function LeadStatuses() {
   const statuses = useResource<{ data: LeadStatus[] }>("/lead-statuses");
   const options = useResource<Options>(can("assignment_rules.manage") ? "/lead-status-options" : null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
+  const notify = useNotify();
+  const allStatuses = statuses.data?.data || [];
+  const activeCount = allStatuses.filter(status => status.is_active).length;
+  const defaultStatus = allStatuses.find(status => status.is_default);
   async function create(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setSaved(false);
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
       await crm("/lead-statuses", { method: "POST", body: JSON.stringify({
@@ -39,30 +42,35 @@ function LeadStatuses() {
         position: Number(values.get("position")), is_active: true,
       }) });
       event.currentTarget.reset();
-      statuses.reload(); setSaved(true);
-    } catch (failure) { setError(errorMessage(failure)); }
+      statuses.reload(); notify.success(`${values.get("name")} is now available.`, { title: "Status created" });
+    } catch (failure) { notify.error(errorMessage(failure), { title: "Status could not be created" }); }
     finally { setBusy(false); }
   }
-  return <><div className="page-header"><div><span className="eyebrow">PIPELINE CONFIGURATION</span><h1>Lead statuses</h1><p className="muted">Order and classify your organization’s lead stages. Status changes can tag and route leads automatically.</p></div></div>
-    <ErrorNotice error={error || statuses.error || options.error} />{saved && <div className="alert alert-success" role="status">Status created.</div>}
-    {can("settings.manage") && <form className="card status-create-form" onSubmit={create}><h2>Add a status</h2><div className="form-grid">
+  return <><div className="page-header lead-status-page-header"><div><span className="eyebrow">PIPELINE CONFIGURATION</span><h1>Lead statuses</h1><p className="muted">Organize your sales stages and set rules for leads as they move through the pipeline.</p></div></div>
+    {statuses.error || options.error ? <div className="status-load-error"><ErrorNotice error={statuses.error || options.error} /><button className="btn" type="button" onClick={() => { statuses.reload(); options.reload(); }}>Retry loading settings</button></div> : null}
+    {!statuses.loading && statuses.data && <section className="status-overview" aria-label="Pipeline overview">
+      <div className="status-overview-metrics"><div><span>Stages</span><strong>{allStatuses.length}</strong></div><div><span>Active</span><strong>{activeCount}</strong></div><div><span>Default stage</span><strong>{defaultStatus?.name || "Not set"}</strong></div></div>
+      {allStatuses.length > 0 && <ol className="status-flow" aria-label="Stages in display order">{allStatuses.map(status => <li key={status.id} className={!status.is_active ? "inactive" : ""}><span className="status-flow-dot" style={{ background: status.color }} /><span className="status-flow-name">{status.name}</span>{status.is_default && <span className="small muted">Default</span>}</li>)}</ol>}
+    </section>}
+    {can("settings.manage") && <form className="card status-create-form" onSubmit={create}><div className="status-section-heading"><div><span className="eyebrow">CUSTOMIZE YOUR PIPELINE</span><h2>Add a status</h2><p className="muted">Create a stage for a distinct step in your lead workflow.</p></div></div><div className="form-grid">
       <Field label="Name"><input className="input" name="name" required maxLength={100} /></Field>
       <Field label="Type"><select className="select" name="category"><option value="new">New</option><option value="pending">Pending</option><option value="working">In progress</option><option value="won">Won</option><option value="lost">Lost</option></select></Field>
       <Field label="Color"><input className="input color-input" name="color" type="color" defaultValue="#64748b" /></Field>
       <Field label="Display order"><input className="input" name="position" type="number" min="0" max="10000" defaultValue={statuses.data?.data.length || 0} required /></Field>
-    </div><button className="btn btn-primary" disabled={busy}>{busy ? "Saving..." : "Add status"}</button></form>}
-    {statuses.loading ? <Loading /> : <div className="status-list">{statuses.data?.data.map(status => <StatusEditor key={`${status.id}-${JSON.stringify(status)}`} status={status} options={options.data} canEdit={can("settings.manage")} canAssign={can("assignment_rules.manage")} onSaved={statuses.reload} />)}</div>}
+    </div><button className="btn btn-primary" disabled={busy || statuses.loading}>{busy ? "Saving..." : "Add status"}</button></form>}
+    <section className="status-management-section"><div className="status-section-heading"><div><span className="eyebrow">STAGE SETTINGS</span><h2>Workflow stages</h2><p className="muted">Expand a stage to edit its details, activation, and entry rules.</p></div>{!statuses.loading && statuses.data && <span className="badge">{allStatuses.length} {allStatuses.length === 1 ? "stage" : "stages"}</span>}</div>
+      {statuses.loading ? <Loading /> : statuses.data?.data.length ? <div className="status-list">{statuses.data.data.map(status => <StatusEditor key={`${status.id}-${JSON.stringify(status)}`} status={status} options={options.data} canEdit={can("settings.manage")} canAssign={can("assignment_rules.manage")} onSaved={statuses.reload} />)}</div> : !statuses.error ? <div className="status-empty"><h3>No lead statuses yet</h3><p className="muted">Add your first status to define how leads move through your pipeline.</p></div> : null}
+    </section>
   </>;
 }
 
 function StatusEditor({ status, options, canEdit, canAssign, onSaved }: {
   status: LeadStatus; options?: Options | null; canEdit: boolean; canAssign: boolean; onSaved: () => void;
 }) {
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const notify = useNotify();
   const [busy, setBusy] = useState(false);
   async function saveStatus(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setNotice("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
       await crm(`/lead-statuses/${status.id}`, { method: "PUT", body: JSON.stringify({
@@ -71,12 +79,12 @@ function StatusEditor({ status, options, canEdit, canAssign, onSaved }: {
         color: values.get("color"), position: Number(values.get("position")),
         is_active: status.is_system ? status.is_active : values.get("is_active") === "on",
       }) });
-      setNotice("Status saved."); onSaved();
-    } catch (failure) { setError(errorMessage(failure)); }
+      notify.success(`${status.name} was updated.`, { title: "Status saved" }); onSaved();
+    } catch (failure) { notify.error(errorMessage(failure), { title: "Status could not be saved" }); }
     finally { setBusy(false); }
   }
   async function saveRules(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setNotice("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
       await crm(`/lead-statuses/${status.id}/rules`, { method: "PUT", body: JSON.stringify({
@@ -86,13 +94,13 @@ function StatusEditor({ status, options, canEdit, canAssign, onSaved }: {
         role_ids: values.getAll("role_id").map(String),
         required_fields: values.getAll("required_field").map(String),
       }) });
-      setNotice("Automation saved."); onSaved();
-    } catch (failure) { setError(errorMessage(failure)); }
+      notify.success(`Rules for ${status.name} were updated.`, { title: "Automation saved" }); onSaved();
+    } catch (failure) { notify.error(errorMessage(failure), { title: "Automation could not be saved" }); }
     finally { setBusy(false); }
   }
   const requiredChoices = [...REQUIRED_FIELDS.map(([key, label]) => ({ key, label })), ...(options?.custom_fields || []).map(field => ({ key: field.field_key, label: field.label }))];
   return <details className="lead-status-config"><summary><span className="status-dot" style={{ background: status.color }} />{status.name}<span className="badge">{status.type}</span>{status.is_system && <span className="badge">System</span>}{status.is_default && <span className="badge">Default</span>}</summary>
-    <div className="lead-status-config-body"><ErrorNotice error={error} />{notice && <p className="small muted" role="status">{notice}</p>}
+    <div className="lead-status-config-body">
       <form className="form-grid" onSubmit={saveStatus}><Field label="Name"><input className="input" name="name" defaultValue={status.name} required maxLength={100} disabled={!canEdit || status.is_system} /></Field>
         <Field label="Type"><select className="select" name="category" defaultValue={status.type} disabled={!canEdit || status.is_system}>{[["new", "New"], ["pending", "Pending"], ["working", "In progress"], ["won", "Won"], ["lost", "Lost"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
         <Field label="Color"><input className="input color-input" name="color" type="color" defaultValue={status.color} disabled={!canEdit} /></Field>

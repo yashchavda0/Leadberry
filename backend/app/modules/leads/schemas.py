@@ -23,7 +23,9 @@ class LeadInput(Input):
     assigned_membership_id: UUID | None = None
     team_id: UUID | None = None
     tags: list[str] = Field(default_factory=list, max_length=20)
-    custom_fields: dict[str, str | int | float | bool | None] = Field(default_factory=dict, max_length=50)
+    custom_fields: dict[str, str | int | float | bool | None] = Field(
+        default_factory=dict, max_length=50
+    )
     next_follow_up_at: AwareDatetime | None = None
 
     @field_validator("phone")
@@ -49,7 +51,8 @@ class LeadInput(Input):
     @classmethod
     def validate_fields(cls, fields: dict) -> dict:
         if any(
-            not key.strip() or len(key) > 100
+            not key.strip()
+            or len(key) > 100
             or (isinstance(value, str) and len(value) > 1000)
             or (isinstance(value, float) and not math.isfinite(value))
             for key, value in fields.items()

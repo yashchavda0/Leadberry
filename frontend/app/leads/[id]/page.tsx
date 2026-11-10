@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
+import DOMPurify from "isomorphic-dompurify";
 import LeadForm from "@/components/LeadForm";
 import { Guard, useSession } from "@/components/Session";
 import Icon from "@/components/Icon";
@@ -47,7 +48,6 @@ function Detail() {
   const [statusNote, setStatusNote] = useState("");
   const [nextFollowUpAt, setNextFollowUpAt] = useState("");
   const [statusBusy, setStatusBusy] = useState(false);
-  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const notify = useNotify();
   const lead = resource.data;
@@ -58,15 +58,21 @@ function Detail() {
     }
   }, [lead?.status_id, lead?.next_follow_up_at]);
   const targetStatus = statusOptions.data?.statuses.find(status => status.id === selectedStatusId);
-  const needsFollowUpTime = targetStatus?.required_fields?.includes("next_follow_up_at") ?? false;
+  const needsFollowUpTime = targetStatus?.type === "pending" || targetStatus?.required_fields?.includes("next_follow_up_at") === true;
+  const sanitizedEnquiry = lead && !lead.pii_redacted
+    ? DOMPurify.sanitize(lead.enquiry || "", {
+      ALLOWED_TAGS: ["a", "b", "blockquote", "br", "caption", "code", "dd", "div", "dl", "dt", "em", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "li", "ol", "p", "pre", "s", "span", "strong", "sub", "sup", "table", "tbody", "td", "th", "thead", "tr", "u", "ul"],
+      ALLOWED_ATTR: ["href", "title", "colspan", "rowspan"],
+    })
+    : "";
 
   async function archive() {
     if (!lead) return;
     const action = lead.archived_at ? "restore" : "archive";
     if (!window.confirm(`${action === "archive" ? "Archive" : "Restore"} this lead?`)) return;
-    setBusy(true); setError("");
-    try { await crm(`/leads/${id}/${action}`, { method: "POST", body: JSON.stringify({ row_version: lead.row_version }) }); resource.reload(); }
-    catch (error) { setError(errorMessage(error)); }
+    setBusy(true);
+    try { await crm(`/leads/${id}/${action}`, { method: "POST", body: JSON.stringify({ row_version: lead.row_version }) }); resource.reload(); notify.success(`${lead.name} ${action === "archive" ? "archived" : "restored"}.`); }
+    catch (error) { notify.error(errorMessage(error), { title: `Lead could not be ${action === "archive" ? "archived" : "restored"}` }); }
     finally { setBusy(false); }
   }
 
@@ -97,7 +103,7 @@ function Detail() {
 
   return <div className="lead-detail-page">
     <Button variant="ghost" size="icon" asChild className="lead-back-link"><Link href="/leads" aria-label="Back to leads" title="Back to leads"><Icon name="chevronLeft" /></Link></Button>
-    <ErrorNotice error={error || resource.error} />
+    <ErrorNotice error={resource.error} />
     {resource.loading && <Loading />}
     {resource.error && <Button variant="outline" onClick={() => { setEditing(false); resource.reload(); }}>Reload lead</Button>}
     {lead && <>
@@ -110,6 +116,10 @@ function Detail() {
               <h1>{lead.name}</h1>
               <p>{lead.company || "No company"}</p>
             </div>
+          </div>
+          <div className="lead-product-summary">
+            <div><span className="field-label">Product enquiry</span><strong>{lead.product || "Product not specified"}</strong></div>
+            <Button variant="link" size="sm" onClick={() => setActiveTab("enquiry")}>View enquiry</Button>
           </div>
           <div className="lead-identity-contact">
             <div><span>Email</span><strong>{lead.pii_redacted ? "Restricted" : lead.email || "Not provided"}</strong></div>
@@ -191,7 +201,7 @@ function Detail() {
           </div></TabsContent>
           <TabsContent value="enquiry" className="lead-detail-content"><div className="lead-enquiry-panel">
             <div className="lead-enquiry-heading"><span className="eyebrow">PRODUCT ENQUIRED</span><h2>{lead.product || "Product not specified"}</h2></div>
-            <div className="lead-enquiry-message"><span className="field-label">Enquiry details</span><p className="message">{lead.pii_redacted ? "Restricted by contact permission." : lead.enquiry || "No enquiry recorded."}</p></div>
+            <div className="lead-enquiry-message"><span className="field-label">Enquiry details</span>{lead.pii_redacted ? <p className="message">Restricted by contact permission.</p> : sanitizedEnquiry ? <div className="message lead-enquiry-html" dangerouslySetInnerHTML={{ __html: sanitizedEnquiry }} /> : <p className="message">No enquiry recorded.</p>}</div>
           </div></TabsContent>
           <TabsContent value="custom" className="lead-detail-content"><div className="lead-custom-panel"><LeadAttributeTable title="Custom fields" items={lead.pii_redacted ? [] : Object.entries(lead.custom_fields).map(([key, value]) => [key, String(value ?? "-")])} emptyMessage={lead.pii_redacted ? "Restricted by contact permission." : "No custom fields."} /></div></TabsContent>
         </Tabs>
@@ -210,8 +220,9 @@ function Detail() {
                 </SelectItem>)}
               </SelectContent>
             </Select> : <p className="muted">No active statuses are available.</p>}
-            {needsFollowUpTime && <label className="lead-status-note lead-status-followup" htmlFor="lead-status-followup">Follow-up time <span aria-hidden="true">*</span>
-              <input id="lead-status-followup" className="input" type="datetime-local" value={nextFollowUpAt} onChange={event => setNextFollowUpAt(event.target.value)} required disabled={statusBusy} />
+            {needsFollowUpTime && <label className="lead-status-note lead-status-followup" htmlFor="lead-status-followup">Next contact date &amp; time <span aria-hidden="true">*</span>
+              <input id="lead-status-followup" className="input" type="datetime-local" value={nextFollowUpAt} onChange={event => setNextFollowUpAt(event.target.value)} required={targetStatus?.type === "pending" || targetStatus?.required_fields?.includes("next_follow_up_at")} disabled={statusBusy} />
+              <small className="hint">Choose when to try contacting this lead again.</small>
             </label>}
             <label className="lead-status-note" htmlFor="lead-status-note">Note <span aria-hidden="true">*</span>
               <textarea id="lead-status-note" className="input" value={statusNote} onChange={event => setStatusNote(event.target.value)} maxLength={2000} rows={3} required disabled={statusBusy} />

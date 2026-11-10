@@ -16,21 +16,62 @@ async def onboard(body: Onboard, request: Request, response: Response):
     return {**set_session(request, response, tokens), "organization_id": org}
 
 
+PROFILE = (
+    "logo_url",
+    "website",
+    "industry",
+    "company_size",
+    "business_email",
+    "business_phone",
+    "address",
+    "city",
+    "state",
+    "postal_code",
+    "country",
+    "currency",
+    "gstin",
+)
+
+
 @router.get("/me")
 async def organization(request: Request, user: User):
-    async with tenant_transaction(request.app.state.database_engine, user.org_id) as connection:
-        row = (await connection.execute(
-            text("SELECT id,slug,name,timezone,status,authz_version FROM crm.organizations WHERE id=:org"),
-            {"org": user.org_id},
-        )).mappings().one()
+    async with tenant_transaction(
+        request.app.state.database_engine, user.org_id
+    ) as connection:
+        row = (
+            (
+                await connection.execute(
+                    text(
+                        f"SELECT id,slug,name,timezone,status,authz_version,{','.join(PROFILE)} FROM crm.organizations WHERE id=:org"
+                    ),
+                    {"org": user.org_id},
+                )
+            )
+            .mappings()
+            .one()
+        )
         return dict(row)
 
 
 @router.put("/me")
 async def organization_update(body: OrganizationInput, request: Request, user: User):
-    async with tenant_transaction(request.app.state.database_engine, user.org_id) as connection:
+    async with tenant_transaction(
+        request.app.state.database_engine, user.org_id
+    ) as connection:
         await authorize_mutation(connection, user, "settings.manage")
-        await connection.execute(text("UPDATE crm.organizations SET name=:name,timezone=:zone,settings_version=settings_version+1,updated_at=now() WHERE id=:org"),
-                                 {"org": user.org_id, "name": body.name, "zone": body.timezone})
-        await audit(connection, user.org_id, user.member_id, "organization.updated", user.org_id)
+        assignments = ",".join(f"{column}=:{column}" for column in PROFILE)
+        await connection.execute(
+            text(
+                f"UPDATE crm.organizations SET name=:name,timezone=:zone,{assignments},settings_version=settings_version+1,updated_at=now() WHERE id=:org"
+            ),
+            {
+                "org": user.org_id,
+                "name": body.name,
+                "zone": body.timezone,
+                **{column: getattr(body, column) for column in PROFILE},
+            },
+        )
+        await audit(
+            connection, user.org_id, user.member_id, "organization.updated", user.org_id
+        )
         return {"status": "updated"}

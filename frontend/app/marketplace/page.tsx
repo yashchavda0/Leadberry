@@ -215,13 +215,13 @@ function AccountEditor({ provider, account, storageReady, onClose, onSaved }: {
   provider: MarketplaceProvider; account?: MarketplaceAccount; storageReady: boolean;
   onClose: () => void; onSaved: (account: MarketplaceAccount) => void;
 }) {
-  const [error, setError] = useState("");
+  const notify = useNotify();
   const [busy, setBusy] = useState(false);
   const [interval, setIntervalSeconds] = useState(provider.default_interval_seconds || 900);
   const [importHistory, setImportHistory] = useState(false);
   const schedulable = !account && Boolean(provider.adapter && provider.allowed_intervals?.length);
   async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     const form = new FormData(event.currentTarget);
     const config: Record<string, string> = {};
     const credentials: Record<string, string> = {};
@@ -237,10 +237,9 @@ function AccountEditor({ provider, account, storageReady, onClose, onSaved }: {
     };
     try {
       onSaved(await crm<MarketplaceAccount>(account ? `/marketplace/accounts/${account.id}` : "/marketplace/accounts", { method: account ? "PUT" : "POST", body: JSON.stringify(payload) }));
-    } catch (problem) { setError(errorMessage(problem)); setBusy(false); }
+    } catch (problem) { notify.error(errorMessage(problem), { title: account ? "Settings could not be saved" : "Connection could not be created" }); setBusy(false); }
   }
   return <Dialog title={account ? "Connection settings" : `Connect ${provider.name}`} subtitle={provider.name} logo={<ProviderLogo code={provider.code} name={provider.name} />} closeLabel="Close connection settings" onClose={onClose}>
-    <ErrorNotice error={error} />
     <form onSubmit={save}>
       <Field label={provider.code === "indiamart" ? "Form name" : "Connection name"}><input className="input" name="name" required maxLength={100} defaultValue={account?.name || ""} /></Field>
       {provider.fields.map(field => <div key={field.key}>

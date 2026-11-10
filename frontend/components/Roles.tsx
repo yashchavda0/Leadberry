@@ -6,6 +6,7 @@ import PermissionGroups from "@/components/PermissionGroups";
 import RolePermissionsView from "@/components/permissions/RolePermissionsView";
 import { useSession } from "@/components/Session";
 import { ErrorNotice, Field, Loading } from "@/components/Ui";
+import { useNotify } from "@/components/Notifications";
 import Icon from "@/components/Icon";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
@@ -42,18 +43,19 @@ function RoleEditor({ role, catalog, onDone, onCancel }: { role?: Role; catalog:
   const [parent, setParent] = useState<string[]>(role?.reports_to_role_id ? [role.reports_to_role_id] : []);
   const [selected, setSelected] = useState(role?.permissions || []);
   const [scope, setScope] = useState<Scope>(role?.data_scope || "own");
+  const notify = useNotify();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
       await crm(role ? `/roles/${role.id}` : "/roles", { method: role ? "PUT" : "POST", body: JSON.stringify({ name: values.get("name"), description: values.get("description") || null, data_scope: scope, permissions: selected, is_active: values.get("is_active") === "on", reports_to_role_id: parent[0] || null }) });
+      notify.success(`${values.get("name")} ${role ? "updated" : "created"}.`, { title: role ? "Role updated" : "Role created" });
       onDone();
-    } catch (error) { setError(errorMessage(error)); }
+    } catch (error) { notify.error(errorMessage(error), { title: "Role could not be saved" }); }
     finally { setBusy(false); }
   }
-  return <form className="card editor-card" onSubmit={save}><h2>{role ? "Edit role" : "New role"}</h2><ErrorNotice error={error} /><div className="form-grid"><Field label="Role name"><input className="input" name="name" defaultValue={role?.name || ""} required maxLength={100} /></Field><Field label="Description"><input className="input" name="description" defaultValue={role?.description || ""} maxLength={1000} /></Field><Field label="Lead visibility"><select className="select" value={scope} onChange={event => setScope(event.target.value as Scope)}><option value="own">Own assigned leads + own unassigned leads</option><option value="team">Own leads + leads assigned to your teams</option><option value="all">All organization leads</option></select></Field><label className="check-row"><input name="is_active" type="checkbox" defaultChecked={role?.is_active ?? true} />Active role</label></div>
+  return <form className="card editor-card" onSubmit={save}><h2>{role ? "Edit role" : "New role"}</h2><div className="form-grid"><Field label="Role name"><input className="input" name="name" defaultValue={role?.name || ""} required maxLength={100} /></Field><Field label="Description"><input className="input" name="description" defaultValue={role?.description || ""} maxLength={1000} /></Field><Field label="Lead visibility"><select className="select" value={scope} onChange={event => setScope(event.target.value as Scope)}><option value="own">Own assigned leads + own unassigned leads</option><option value="team">Own leads + leads assigned to your teams</option><option value="all">All organization leads</option></select></Field><label className="check-row"><input name="is_active" type="checkbox" defaultChecked={role?.is_active ?? true} />Active role</label></div>
     <SelectionPicker path="/roles" label="Report to role (none = top level)" values={parent} onChange={setParent} single excludeIds={role ? [role.id] : []} includeInactive />
     <p className="small muted">Type: {parent.length ? "Child" : "Parent"}. Level is calculated from the reporting chain on save; descendants update automatically. Reporting does not inherit permissions or lead visibility.</p>
     <PermissionGroups catalog={catalog} selected={selected} onSelect={setSelected} />

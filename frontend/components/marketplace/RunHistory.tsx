@@ -4,6 +4,7 @@ import Dialog from "@/components/marketplace/Dialog";
 import Icon, { type IconName } from "@/components/Icon";
 import ProviderLogo from "@/components/ProviderLogo";
 import ScrollArea from "@/components/ScrollArea";
+import { Tip } from "@/components/ui/tip";
 import StatusBadge from "@/components/StatusBadge";
 import { ErrorNotice, Loading } from "@/components/Ui";
 import { formatDate, formatDay, marketplaceErrors, type MarketplaceAccount, type MarketplaceRun } from "@/lib/crm";
@@ -17,7 +18,7 @@ const title = (run: MarketplaceRun) => run.kind === "test" ? "Connection test" :
 
 export default function RunHistory({ account, providerName, onClose }: { account: MarketplaceAccount; providerName: string; onClose: () => void }) {
   const runs = useResource<{ data: MarketplaceRun[] }>(`/marketplace/accounts/${account.id}/runs`, true);
-  const refresh = <button className="btn icon-btn" type="button" aria-label="Refresh" title="Refresh" disabled={runs.loading} onClick={runs.reload}><span className={runs.loading ? "spin" : undefined}><Icon name="refresh" /></span></button>;
+  const refresh = <Tip label="Refresh" disabled={runs.loading}><button className="btn icon-btn" type="button" aria-label="Refresh" disabled={runs.loading} onClick={runs.reload}><span className={runs.loading ? "spin" : undefined}><Icon name="refresh" /></span></button></Tip>;
   return <Dialog wide actions={refresh} title="Connection history" subtitle={`${account.name} · ${providerName}`} logo={<ProviderLogo code={account.provider_code} name={providerName} />} closeLabel="Close connection history" onClose={onClose}>
     <ErrorNotice error={runs.error} />
     {!runs.data && runs.loading ? <Loading /> : !runs.data?.data.length ? <div className="empty-state"><h3>No activity yet</h3><p className="muted">Connection tests, syncs and history imports will appear here.</p></div> : <ScrollArea label="Run history"><ol className="run-timeline">

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Dialog from "@/components/marketplace/Dialog";
 import ProviderLogo from "@/components/ProviderLogo";
-import { ErrorNotice, Field } from "@/components/Ui";
+import { Field } from "@/components/Ui";
+import { useNotify } from "@/components/Notifications";
 import { intervalHint } from "@/components/marketplace/ScheduleDialog";
 import { crm, errorMessage, formatInterval, importSlotsPerCycle, type MarketplaceAccount, type MarketplaceProvider } from "@/lib/crm";
 
@@ -30,16 +31,17 @@ export default function BackfillDialog({ account, provider, onClose, onStarted }
   const created = localDate(new Date(account.created_at));
   const [from, setFrom] = useState(min);
   const [to, setTo] = useState(created < max ? created : max);
-  const [error, setError] = useState("");
+  const notify = useNotify();
   const [busy, setBusy] = useState(false);
   async function start(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     try {
-      onStarted(await crm<MarketplaceAccount>(`/marketplace/accounts/${account.id}/backfills`, { method: "POST", body: JSON.stringify({ from_date: from, to_date: to }) }));
-    } catch (problem) { setError(errorMessage(problem)); setBusy(false); }
+      const updated = await crm<MarketplaceAccount>(`/marketplace/accounts/${account.id}/backfills`, { method: "POST", body: JSON.stringify({ from_date: from, to_date: to }) });
+      notify.info(`Importing past leads for ${account.name} is queued for the connector worker.`, { title: "History import queued" });
+      onStarted(updated);
+    } catch (problem) { notify.error(errorMessage(problem), { title: "Import could not start" }); setBusy(false); }
   }
   return <Dialog title="Import past leads" subtitle={`${account.name} · ${provider.name}`} logo={<ProviderLogo code={provider.code} name={provider.name} />} closeLabel="Close import past leads" onClose={onClose}>
-    <ErrorNotice error={error} />
     <p className="small muted">{provider.name} keeps the last {historyDays} days. Past leads are fetched newest first in the request slots left free between live syncs, and keep their original enquiry date.</p>
     <form onSubmit={start}>
       <Field label="From"><input className="input" type="date" aria-label="From" min={min} max={to} value={from} required onChange={event => setFrom(event.target.value)} /></Field>

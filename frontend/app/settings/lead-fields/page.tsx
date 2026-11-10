@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Guard, useSession } from "@/components/Session";
 import { ErrorNotice, Field, Loading } from "@/components/Ui";
+import { useNotify } from "@/components/Notifications";
 import { crm, errorMessage, type LeadCustomField } from "@/lib/crm";
 import { useResource } from "@/lib/hooks";
 
@@ -12,12 +13,11 @@ export default function LeadFieldsPage() {
 
 function LeadFields() {
   const { can } = useSession();
+  const notify = useNotify();
   const fields = useResource<{ data: LeadCustomField[] }>("/lead-custom-fields");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   async function save(event: React.FormEvent<HTMLFormElement>, field?: LeadCustomField) {
-    event.preventDefault(); setBusy(true); setError(""); setNotice("");
+    event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     const type = String(values.get("field_type"));
     const options = type === "select" ? String(values.get("options") || "").split("\n").map(item => item.trim()).filter(Boolean) : [];
@@ -28,12 +28,12 @@ function LeadFields() {
     try {
       if (field) await crm(`/lead-custom-fields/${encodeURIComponent(field.field_key)}`, { method: "PUT", body: JSON.stringify(payload) });
       else await crm("/lead-custom-fields", { method: "POST", body: JSON.stringify({ ...payload, field_key: values.get("field_key") }) });
-      fields.reload(); setNotice(field ? "Field saved." : "Field created.");
-    } catch (failure) { setError(errorMessage(failure)); }
+      fields.reload(); notify.success(`${payload.label} ${field ? "saved" : "created"}.`, { title: field ? "Field saved" : "Field created" });
+    } catch (failure) { notify.error(errorMessage(failure), { title: "Field could not be saved" }); }
     finally { setBusy(false); }
   }
   return <><div className="page-header"><div><span className="eyebrow">PIPELINE CONFIGURATION</span><h1>Lead fields</h1><p className="muted">Define organization-specific fields used in lead forms and status requirements.</p></div></div>
-    <ErrorNotice error={error || fields.error} />{notice && <div className="alert alert-success" role="status">{notice}</div>}
+    <ErrorNotice error={fields.error} />
     {can("settings.manage") && <form className="card field-create-form" onSubmit={event => void save(event)}><h2>Add a field</h2><div className="form-grid">
       <Field label="Field key"><input className="input" name="field_key" required maxLength={100} pattern="[a-z][a-z0-9_]*" placeholder="budget_range" /></Field>
       <Field label="Label"><input className="input" name="label" required maxLength={100} /></Field>

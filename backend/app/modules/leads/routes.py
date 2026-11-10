@@ -187,6 +187,15 @@ async def apply_status_rules(
         .scalars()
         .all()
     )
+    category = await connection.scalar(
+        text(
+            "SELECT category FROM crm.lead_statuses "
+            "WHERE org_id=:org AND id=:status"
+        ),
+        {"org": org_id, "status": status_id},
+    )
+    if category == "pending" and "next_follow_up_at" not in required:
+        required = [*required, "next_follow_up_at"]
     custom = values.get("custom_fields") or {}
     missing = [
         key
@@ -385,22 +394,26 @@ async def status_history(lead_id: UUID, request: Request, user: User):
     async with access(request, user, "leads.view") as (connection, current):
         await get_lead(connection, current, lead_id)
         rows = (
-            await connection.execute(
-                text(
-                    "SELECT h.id,h.from_status,h.to_status,"
-                    "CASE WHEN :can_view_pii THEN h.note ELSE NULL END AS note,"
-                    "h.actor_name,h.created_at "
-                    "FROM crm.lead_status_history h "
-                    "WHERE h.org_id=:org AND h.lead_id=:id "
-                    "ORDER BY h.created_at DESC,h.id DESC LIMIT 100"
-                ),
-                {
-                    "org": current.org_id,
-                    "id": lead_id,
-                    "can_view_pii": "leads.pii.view" in current.permissions,
-                },
+            (
+                await connection.execute(
+                    text(
+                        "SELECT h.id,h.from_status,h.to_status,"
+                        "CASE WHEN :can_view_pii THEN h.note ELSE NULL END AS note,"
+                        "h.actor_name,h.created_at "
+                        "FROM crm.lead_status_history h "
+                        "WHERE h.org_id=:org AND h.lead_id=:id "
+                        "ORDER BY h.created_at DESC,h.id DESC LIMIT 100"
+                    ),
+                    {
+                        "org": current.org_id,
+                        "id": lead_id,
+                        "can_view_pii": "leads.pii.view" in current.permissions,
+                    },
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         return {"data": [dict(row) for row in rows]}
 
 
@@ -412,16 +425,20 @@ async def change_status(
         if "leads.view" not in current.permissions:
             raise AccessError(403, "permission_denied")
         lead = (
-            await connection.execute(
-                text(
-                    "SELECT l.*,s.name AS previous_status FROM crm.leads l "
-                    "JOIN crm.lead_statuses s ON s.org_id=l.org_id AND s.id=l.status_id "
-                    "WHERE l.org_id=:org AND l.id=:id AND "
-                    f"{visibility(current)} FOR UPDATE OF l"
-                ),
-                {"org": current.org_id, "id": lead_id, "member": current.member_id},
+            (
+                await connection.execute(
+                    text(
+                        "SELECT l.*,s.name AS previous_status FROM crm.leads l "
+                        "JOIN crm.lead_statuses s ON s.org_id=l.org_id AND s.id=l.status_id "
+                        "WHERE l.org_id=:org AND l.id=:id AND "
+                        f"{visibility(current)} FOR UPDATE OF l"
+                    ),
+                    {"org": current.org_id, "id": lead_id, "member": current.member_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if lead is None:
             raise AccessError(404, "lead_not_found")
         if lead["archived_at"]:
@@ -431,16 +448,22 @@ async def change_status(
         if lead["status_id"] == body.status_id:
             raise AccessError(422, "status_unchanged")
         target_status = (
-            await connection.execute(
-                text(
-                    "SELECT name FROM crm.lead_statuses "
-                    "WHERE org_id=:org AND id=:id AND is_active"
-                ),
-                {"org": current.org_id, "id": body.status_id},
+            (
+                await connection.execute(
+                    text(
+                        "SELECT name,category FROM crm.lead_statuses "
+                        "WHERE org_id=:org AND id=:id AND is_active"
+                    ),
+                    {"org": current.org_id, "id": body.status_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if target_status is None:
             raise AccessError(422, "invalid_status")
+        if target_status["category"] == "pending" and body.next_follow_up_at is None:
+            raise AccessError(422, "lead_required_fields_missing")
 
         values = dict(lead)
         values["tags"] = list(lead["tags"] or [])
@@ -500,7 +523,11 @@ async def change_status(
             },
         )
         await audit(
-            connection, current.org_id, current.member_id, "lead.status_changed", lead_id
+            connection,
+            current.org_id,
+            current.member_id,
+            "lead.status_changed",
+            lead_id,
         )
         return {"id": lead_id, "row_version": updated_version}
 

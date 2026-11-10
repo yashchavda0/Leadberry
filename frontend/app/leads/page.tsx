@@ -5,6 +5,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import LeadsTable, { isPiiLeadColumn } from "@/components/LeadsTable";
 import LeadFilters from "@/components/LeadFilters";
+import LeadContextBar from "@/components/LeadContextBar";
+import { Tip } from "@/components/ui/tip";
 import LeadColumnPicker, { DEFAULT_LEAD_COLUMNS } from "@/components/LeadColumnPicker";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Icon from "@/components/Icon";
@@ -49,10 +51,10 @@ function Leads() {
     finally { setBusyId(null); }
   }
   return <><div className="page-header leads-header"><div><h1>Leads <span className="lead-count">{list.total !== null ? list.total.toLocaleString() : ""}</span>{query.get("archived") === "true" && <span className="badge">Archived</span>}</h1></div><div className="actions"><ExportLeadsButton query={query.toString()} label="Excel" className="btn lead-header-button" fileName={backfillId ? "imported-leads.xlsx" : "leads.xlsx"} />{can("leads.create") && <Button size="sm" asChild><Link href="/leads/new"><Icon name="plus" />New lead</Link></Button>}</div></div>
-    {integrationId && <div className="toolbar"><span className="badge">{searchParams.get("connection") || "Selected connection"}</span><Link className="btn" href="/leads">All connections</Link></div>}
-    {backfillId && <div className="toolbar"><span className="badge">Imported by: {searchParams.get("import") || "Selected history import"}</span><Link className="btn" href="/leads">All leads</Link></div>}
+    {integrationId && <LeadContextBar kind="Showing leads from connection" value={searchParams.get("connection") || "Selected connection"} clearHref="/leads" clearLabel="Show all leads" />}
+    {backfillId && <LeadContextBar kind="Showing leads imported by" value={searchParams.get("import") || "Selected history import"} clearHref="/leads" clearLabel="Show all leads" icon="download" />}
     <section className="leads-workspace" aria-label="Lead directory">
-      <LeadFilters value={filters} onChange={setFilters} options={options.data} canAssign={can("leads.assign")} canArchive={can("leads.archive") || can("leads.restore")} loading={list.loading} tools={<><Button variant="ghost" size="icon" title="Refresh leads" aria-label="Refresh leads" disabled={list.loading} onClick={list.reload}><Icon name="refresh" /></Button><LeadColumnPicker columns={columns} customFields={options.data?.custom_fields} busy={preferenceBusy || preferences.loading || options.loading} pii={can("leads.pii.view")} onChange={next => void saveColumns(next)} /></>} />
+      <LeadFilters value={filters} onChange={setFilters} options={options.data} canAssign={can("leads.assign")} canArchive={can("leads.archive") || can("leads.restore")} loading={list.loading} tools={<><Tip label="Refresh leads" disabled={list.loading}><Button variant="ghost" size="icon" aria-label="Refresh leads" disabled={list.loading} onClick={list.reload}><Icon name="refresh" /></Button></Tip><LeadColumnPicker columns={columns} customFields={options.data?.custom_fields} busy={preferenceBusy || preferences.loading || options.loading} pii={can("leads.pii.view")} onChange={next => void saveColumns(next)} /></>} />
       <ErrorNotice error={options.error || list.error || preferences.error} />{list.error && <Button variant="outline" onClick={list.reload}>Retry</Button>}{list.loading ? <Loading /> : list.data && <LeadsTable leads={list.data.data} customFields={options.data?.custom_fields} columns={columns.filter(key => can("leads.pii.view") || !isPiiLeadColumn(key))} offset={(list.page - 1) * list.pageSize} onArchive={lead => setPendingAction({ lead, restore: false })} onRestore={lead => setPendingAction({ lead, restore: true })} busyId={busyId} canArchive={can("leads.archive")} canRestore={can("leads.restore")} />}
       <Pagination list={list} />
     </section>

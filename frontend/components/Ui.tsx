@@ -1,6 +1,7 @@
 "use client";
 
 import Icon from "@/components/Icon";
+import { Tip } from "@/components/ui/tip";
 
 export function ErrorNotice({ error }: { error: string }) {
   return error ? <div className="alert alert-error" role="alert">{error}</div> : null;
@@ -21,9 +22,9 @@ export function Pagination({ list }: { list: PagerList }) {
   return <nav className="pager" aria-label="Pagination">
     <span className="pager-range">{count ? `${first}–${first + count - 1}${typeof total === "number" ? ` of ${total.toLocaleString()}` : ""}` : ""}</span>
     <div className="pager-controls">
-      <button type="button" aria-label="Previous" title="Previous page" disabled={loading || !hasPrevious} onClick={previous}><Icon name="chevronLeft" /></button>
+      <Tip label="Previous page" disabled={loading || !hasPrevious}><button type="button" aria-label="Previous" disabled={loading || !hasPrevious} onClick={previous}><Icon name="chevronLeft" /></button></Tip>
       <span className="pager-page" aria-live="polite">Page <strong>{page}</strong>{pages ? <> of <strong>{pages.toLocaleString()}</strong></> : null}</span>
-      <button type="button" aria-label="Next" title="Next page" disabled={loading || !hasNext} onClick={next}><Icon name="chevronRight" /></button>
+      <Tip label="Next page" disabled={loading || !hasNext}><button type="button" aria-label="Next" disabled={loading || !hasNext} onClick={next}><Icon name="chevronRight" /></button></Tip>
     </div>
   </nav>;
 }

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Dialog from "@/components/marketplace/Dialog";
 import ProviderLogo from "@/components/ProviderLogo";
-import { ErrorNotice, Field } from "@/components/Ui";
+import { Field } from "@/components/Ui";
+import { useNotify } from "@/components/Notifications";
 import { crm, errorMessage, formatInterval, importSlotsPerCycle, type MarketplaceAccount, type MarketplaceProvider } from "@/lib/crm";
 
 export function intervalHint(provider: MarketplaceProvider, interval: number): string {
@@ -25,16 +26,17 @@ export default function ScheduleDialog({ account, provider, onClose, onSaved }: 
   account: MarketplaceAccount; provider: MarketplaceProvider; onClose: () => void; onSaved: (account: MarketplaceAccount) => void;
 }) {
   const [seconds, setSeconds] = useState(account.sync_interval_seconds);
-  const [error, setError] = useState("");
+  const notify = useNotify();
   const [busy, setBusy] = useState(false);
   async function save(event: React.FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true);
     try {
-      onSaved(await crm<MarketplaceAccount>(`/marketplace/accounts/${account.id}/schedule`, { method: "PUT", body: JSON.stringify({ sync_interval_seconds: seconds }) }));
-    } catch (problem) { setError(errorMessage(problem)); setBusy(false); }
+      const updated = await crm<MarketplaceAccount>(`/marketplace/accounts/${account.id}/schedule`, { method: "PUT", body: JSON.stringify({ sync_interval_seconds: seconds }) });
+      notify.success(`${account.name} now syncs every ${formatInterval(seconds)}.`, { title: "Sync schedule saved" });
+      onSaved(updated);
+    } catch (problem) { notify.error(errorMessage(problem), { title: "Schedule could not be saved" }); setBusy(false); }
   }
   return <Dialog title="Sync schedule" subtitle={`${account.name} · ${provider.name}`} logo={<ProviderLogo code={provider.code} name={provider.name} />} closeLabel="Close sync schedule" onClose={onClose}>
-    <ErrorNotice error={error} />
     <form onSubmit={save}>
       <IntervalSelect provider={provider} value={seconds} onChange={setSeconds} />
       <div className="form-actions"><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy || seconds === account.sync_interval_seconds}>{busy ? "Saving..." : "Save schedule"}</button></div>

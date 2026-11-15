@@ -33,38 +33,43 @@ export function useResource<T>(path: string | null, keepData = false) {
 
 export const PAGE_SIZE = 25;
 
-export function usePaged<T>(path: string | null) {
+export function usePaged<T>(path: string | null, pageSize = PAGE_SIZE) {
   const [cursor, setCursor] = useState<string | null>(null);
   const [history, setHistory] = useState<(string | null)[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  const key = `${path ?? ""}\u0000${pageSize}`;
+  const [cursorKey, setCursorKey] = useState(key);
+  const currentCursor = cursorKey === key ? cursor : null;
+  const currentHistory = cursorKey === key ? history : [];
   const resource = useResource<Page<T>>(
     path
-      ? `${path}${path.includes("?") ? "&" : "?"}limit=${PAGE_SIZE}${cursor ? `&after=${encodeURIComponent(cursor)}` : ""}`
+      ? `${path}${path.includes("?") ? "&" : "?"}limit=${pageSize}${currentCursor ? `&after=${encodeURIComponent(currentCursor)}` : ""}`
       : null,
   );
   useEffect(() => {
     setCursor(null);
     setHistory([]);
     setTotal(null);
-  }, [path]);
+    setCursorKey(key);
+  }, [key]);
   // The API only counts on the first page, so remember it while paging.
   useEffect(() => {
     if (
-      cursor === null &&
+      currentCursor === null &&
       resource.data &&
       typeof resource.data.total === "number"
     )
       setTotal(resource.data.total);
-  }, [cursor, resource.data]);
+  }, [currentCursor, resource.data]);
   function next() {
     if (resource.data?.next_cursor) {
-      setHistory((values) => [...values, cursor]);
+      setHistory((values) => [...values, currentCursor]);
       setCursor(resource.data.next_cursor);
     }
   }
   function previous() {
-    if (history.length) {
-      setCursor(history[history.length - 1]);
+    if (currentHistory.length) {
+      setCursor(currentHistory[currentHistory.length - 1]);
       setHistory((values) => values.slice(0, -1));
     }
   }
@@ -72,9 +77,9 @@ export function usePaged<T>(path: string | null) {
     ...resource,
     next,
     previous,
-    hasPrevious: history.length > 0,
-    page: history.length + 1,
-    total,
-    pageSize: PAGE_SIZE,
+    hasPrevious: currentHistory.length > 0,
+    page: currentHistory.length + 1,
+    total: cursorKey === key ? total : null,
+    pageSize,
   };
 }

@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <SessionProvider><NotificationProvider><TooltipProvider>{children}</TooltipProvider></NotificationProvider></SessionProvider>
+        <TooltipProvider><SessionProvider><NotificationProvider>{children}</NotificationProvider></SessionProvider></TooltipProvider>
       </body>
     </html>
   );

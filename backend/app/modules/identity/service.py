@@ -316,27 +316,28 @@ class IdentityService:
                 ),
                 {"org": org, "id": member, "user": user_id, "name": body.full_name},
             )
-            for position, (name, category) in enumerate(
+            for position, (name, category, color) in enumerate(
                 (
-                    ("New", "new"),
-                    ("Pending", "pending"),
-                    ("Contacted", "working"),
-                    ("Qualified", "working"),
-                    ("Interested", "working"),
-                    ("Not Interested", "lost"),
-                    ("Converted", "won"),
-                    ("Lost", "lost"),
+                    ("New", "new", "#2563eb"),
+                    ("Pending", "pending", "#d97706"),
+                    ("Contacted", "working", "#0891b2"),
+                    ("Qualified", "working", "#7c3aed"),
+                    ("Interested", "working", "#db2777"),
+                    ("Not Interested", "lost", "#c2410c"),
+                    ("Converted", "won", "#16a34a"),
+                    ("Lost", "lost", "#dc2626"),
                 )
             ):
                 await connection.execute(
                     text(
-                        "INSERT INTO crm.lead_statuses(org_id,name,category,position,is_default,is_system) "
-                        "VALUES(:org,:name,:category,:position,:default,true)"
+                        "INSERT INTO crm.lead_statuses(org_id,name,category,color,position,is_default,is_system) "
+                        "VALUES(:org,:name,:category,:color,:position,:default,true)"
                     ),
                     {
                         "org": org,
                         "name": name,
                         "category": category,
+                        "color": color,
                         "position": position,
                         "default": position == 0,
                     },

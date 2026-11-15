@@ -238,16 +238,35 @@ export type Lead = {
   received_at: string;
   updated_at: string;
   pii_redacted: boolean;
+  is_repeat_customer?: boolean | null;
 };
 export type Dashboard = {
   total: number;
   today: number;
   converted: number;
   overdue: number;
-  statuses: { name: string; color: string; count: number }[];
-  sources: { name: string; count: number }[];
+  lost: number;
+  open: number;
+  unassigned: number;
+  unscheduled: number;
+  upcoming: number;
+  repeat_leads: number;
+  repeat_contacts: number;
+  timezone: string;
+  statuses: { id: string; name: string; color: string; category: string; count: number }[];
+  sources: { name: string; count: number; converted: number; lost: number }[];
+  people: { id: string | null; name: string; total: number; converted: number; lost: number; open: number; overdue: number }[];
+  trend: { day: string; received: number; converted: number; won_events: number; lost_events: number }[];
+  period: { start: string; end: string; previous_start: string; previous_end: string; received: number; converted: number; lost: number; previous_received: number; previous_converted: number; previous_lost: number };
+  aging: { days_0_3: number; days_4_7: number; days_8_14: number; days_15_30: number; days_over_30: number; unchanged_7_days: number };
+  quality: { no_contact: number; no_city: number };
+  update_speed: { updated: number; average_days: number | null; median_days: number | null };
+  outcomes: { conversion_events: number; converted_leads: number; loss_events: number; lost_leads: number };
+  stage_activity: { name: string; category: string; transitions: number; leads: number }[];
   recent: Lead[];
 };
+
+export const SERVICE_UNAVAILABLE = "Service is not available right now. Please try again later.";
 
 const messages: Record<string, string> = {
   authentication_required: "Please sign in to continue.",
@@ -296,17 +315,15 @@ const messages: Record<string, string> = {
     "Choose an existing active lead field for this status requirement.",
   custom_field_required_by_status:
     "This field is required by a status and cannot be deactivated.",
-  database_unavailable: "The database is unavailable. Please retry shortly.",
-  identity_database_not_configured:
-    "The identity backend is not configured. Contact your administrator.",
+  database_unavailable: SERVICE_UNAVAILABLE,
+  identity_database_not_configured: SERVICE_UNAVAILABLE,
   rate_limited: "Too many attempts. Please wait before trying again.",
   assignment_permission_required:
     "You need lead assignment permission for this change.",
   assignment_exceeds_scope: "That assignment is outside your data scope.",
   pii_permission_required:
     "Contact details require the leads.pii.view permission.",
-  origin_not_allowed:
-    "This website origin is not permitted by the backend configuration.",
+  origin_not_allowed: SERVICE_UNAVAILABLE,
   invalid_reporting_role: "Choose a reporting role in this organization.",
   role_hierarchy_cycle:
     "A role cannot report to itself or one of its descendants.",
@@ -327,8 +344,7 @@ const messages: Record<string, string> = {
   provider_adapter_unavailable: "This provider cannot be connected yet.",
   invalid_provider_configuration: "Fill in every required provider field.",
   invalid_provider_credentials: "Enter the API key for this provider.",
-  marketplace_key_unavailable:
-    "Secure credential storage is not configured on the server.",
+  marketplace_key_unavailable: SERVICE_UNAVAILABLE,
   invalid_sync_interval: "Choose one of the offered sync intervals.",
   marketplace_backfill_active:
     "A history import is already running for this connection. Cancel it or wait for it to finish.",
@@ -353,8 +369,7 @@ export const marketplaceErrors: Record<string, string> = {
     "The provider could not be reached. Try the connection test again.",
   provider_timeout:
     "The provider took too long to respond. Try the connection test again.",
-  connector_internal_error:
-    "The connector hit an unexpected error. Try again; check the worker terminal if it repeats.",
+  connector_internal_error: SERVICE_UNAVAILABLE,
   provider_response_rejected:
     "The provider refused the request. Confirm API access is enabled for this account.",
   provider_payload_invalid: "The provider returned an unexpected response.",
@@ -364,15 +379,17 @@ export const marketplaceErrors: Record<string, string> = {
     "That period is older than the provider keeps (IndiaMART: 365 days), so it can no longer be fetched.",
   provider_history_not_ready:
     "IndiaMART releases leads older than a new API key 24 hours after the key was generated. Retried automatically.",
-  worker_lease_expired:
-    "The connector stopped while working on this request. The period goes back in the queue.",
-  marketplace_key_unavailable:
-    "The connector worker could not decrypt this key. Re-enter the API key.",
+  worker_lease_expired: SERVICE_UNAVAILABLE,
+  marketplace_key_unavailable: SERVICE_UNAVAILABLE,
   integration_actor_inactive:
     "The member who created this connection lost marketplace access. Disconnect it and connect it again.",
   integration_default_status_missing:
     "Set a default lead status, then sync again.",
 };
+
+export function marketplaceErrorMessage(code: string): string {
+  return marketplaceErrors[code] || SERVICE_UNAVAILABLE;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -415,7 +432,7 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(
       response.status,
       "invalid_response",
-      "The API returned an unexpected response. Check backend availability.",
+      SERVICE_UNAVAILABLE,
     );
   }
   if (!response.ok) {
@@ -445,16 +462,18 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(
       response.status,
       code,
-      validation ||
+      response.status >= 500 ? SERVICE_UNAVAILABLE : validation ||
         messages[code] ||
-        `Request rejected: ${code.replaceAll("_", " ")} (${response.status}).`,
+        SERVICE_UNAVAILABLE,
     );
   }
   return data as T;
 }
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error
+  return error instanceof TypeError
+    ? SERVICE_UNAVAILABLE
+    : error instanceof Error
     ? error.message
     : "An unexpected error occurred.";
 }
@@ -480,8 +499,7 @@ export async function download(
     throw new ApiError(
       response.status,
       code,
-      messages[code] ||
-        `Download failed: ${code.replaceAll("_", " ")} (${response.status}).`,
+      response.status >= 500 ? SERVICE_UNAVAILABLE : messages[code] || SERVICE_UNAVAILABLE,
     );
   }
   const name =
@@ -585,11 +603,10 @@ export function holdReasonText(
       until && new Date(until).getTime() > Date.now()
         ? `${provider} expires API keys that are unused for 7 days. Resume before ${formatDate(until)} to keep this key.`
         : `This key has not been used for over 7 days and may have expired at ${provider}. Generate a new key if the test fails.`,
-    worker_offline:
-      "The connector is offline. Requests run as soon as it starts again.",
+    worker_offline: SERVICE_UNAVAILABLE,
     gap_recovery: `Live sync resumed with the most recent period. Leads missed before that are fetched from ${provider} in the free request slots, newest first.`,
   };
-  return texts[reason] || reason.replaceAll("_", " ");
+  return texts[reason] || SERVICE_UNAVAILABLE;
 }
 
 export const landingPages = [

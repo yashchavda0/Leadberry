@@ -7,7 +7,8 @@ import Roles from "@/components/Roles";
 import { DataTable } from "@/components/ui/data-table";
 import { useNotify } from "@/components/Notifications";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import Icon from "@/components/Icon";
+import { IconButton } from "@/components/ui/icon-button";
 import type { ColumnDef } from "@tanstack/react-table";
 import PermissionGroups from "@/components/PermissionGroups";
 import LandingPagePicker from "@/components/LandingPagePicker";
@@ -62,12 +63,12 @@ function Users() {
     {editing && <MemberEditor key={editing.id} member={editing} onClose={() => { setEditing(null); list.reload(); }} />}
     <DataTable data={list.data?.data} rowKey={member => member.id} list={list}
       columns={[
-        { id: "name", meta: { width: "230px" }, header: "Name", accessorFn: member => member.display_name, enableSorting: true, cell: ({ row }) => { const member = row.original; return <><strong>{member.display_name}</strong>{member.id === identity?.membership_id && <Badge variant="info">You</Badge>}{member.is_owner && <Badge>Owner</Badge>}</>; } },
-        { id: "email", meta: { width: "240px" }, header: "Email", accessorFn: member => member.email, enableSorting: true },
-        { id: "role", meta: { width: "160px" }, header: "Role", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Owner" : memberRoles(row.original).map(role => role.name).join(", ") || "—" },
-        { id: "level", meta: { width: "80px", align: "center" }, header: "Level", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : memberRoles(row.original).length ? Math.min(...memberRoles(row.original).map(role => role.level)) : "—" },
+        { id: "name", meta: { width: "200px" }, header: "Name", accessorFn: member => member.display_name, enableSorting: true, cell: ({ row }) => <strong className="user-name-cell">{row.original.display_name}</strong> },
+        { id: "email", meta: { width: "250px" }, header: "Email", accessorFn: member => member.email, enableSorting: true },
+        { id: "role", meta: { width: "190px" }, header: "Role", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="user-role-cell">{member.is_owner ? <Badge>Owner</Badge> : memberRoles(member).map(role => role.name).join(", ") || "—"}{member.id === identity?.membership_id && <Badge variant="info">You</Badge>}</div>; } },
+        { id: "level", meta: { width: "70px", align: "center" }, header: "Level", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : memberRoles(row.original).length ? Math.min(...memberRoles(row.original).map(role => role.level)) : "—" },
         { id: "status", meta: { width: "110px" }, header: "Status", accessorFn: member => member.status, enableSorting: true, cell: ({ row }) => <Badge variant={row.original.status === "active" ? "success" : "outline"}>{row.original.status}</Badge> },
-        { id: "actions", meta: { width: "210px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <Button variant="outline" size="sm" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}>Edit access</Button>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <Button variant="destructive" size="sm" onClick={() => { setDeleting(member); }}>Delete</Button>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div>; } },
+        { id: "actions", meta: { width: "90px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="actions user-row-actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <IconButton variant="outline" label="Edit access" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}><Icon name="edit" /></IconButton>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <IconButton variant="destructive" label="Delete user" onClick={() => { setDeleting(member); }}><Icon name="trash" /></IconButton>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div>; } },
         { id: "rights", meta: { width: "190px" }, header: "Rights", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Full Owner access" : `${row.original.visibility_override || "From roles"} / ${Object.keys(row.original.permission_overrides).length} overrides` },
         { id: "reporting", meta: { width: "170px" }, header: "Reporting to", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : [...new Set(memberRoles(row.original).map(role => role.reports_to_name).filter((name): name is string => Boolean(name)))].join(", ") || "—" },
       ] satisfies ColumnDef<Member, unknown>[]} />

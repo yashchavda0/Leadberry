@@ -3,7 +3,8 @@ import binascii
 import json
 import math
 from datetime import datetime, timezone
-from typing import Annotated
+from decimal import Decimal, InvalidOperation
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -19,22 +20,53 @@ from .configuration import BUILTIN_FIELDS
 router = APIRouter(prefix="/api/v1", tags=["Leads"])
 
 
-def encode_cursor(row) -> str:
-    return base64.urlsafe_b64encode(
-        f"{row['received_at'].isoformat()}|{row['id']}".encode()
-    ).decode()
+SORT_COLUMNS = {
+    "name": ("l.name", "text"), "company": ("l.company", "text"),
+    "email": ("l.email", "text"), "phone": ("l.phone", "text"),
+    "city": ("l.city", "text"), "state": ("l.state", "text"),
+    "address": ("l.address", "text"), "product": ("l.product", "text"),
+    "enquiry": ("l.enquiry", "text"), "status_changed_at": ("l.status_changed_at", "datetime"),
+    "status": ("s.name", "text"), "source_name": ("a.name", "text"),
+    "source_provider": ("l.source_provider", "text"), "source_record_id": ("l.source_record_id", "text"),
+    "received_at": ("l.received_at", "datetime"), "assignee": ("m.display_name", "text"),
+    "team_name": ("t.name", "text"), "tags": ("array_to_string(l.tags, ', ')", "text"),
+    "next_follow_up_at": ("l.next_follow_up_at", "datetime"),
+    "updated_at": ("l.updated_at", "datetime"), "archived_at": ("l.archived_at", "datetime"),
+}
+PII_SORT_COLUMNS = {"email", "phone", "address", "enquiry"}
 
 
-def decode_cursor(value: str) -> tuple[datetime, UUID]:
+def encode_cursor(row, sort_by: str, sort_dir: str) -> str:
+    return base64.urlsafe_b64encode(json.dumps({
+        "sort_by": sort_by, "sort_dir": sort_dir, "value": row["sort_value"], "id": str(row["id"]),
+    }, default=str, separators=(",", ":")).encode()).decode()
+
+
+def decode_cursor(value: str, sort_by: str, sort_dir: str, value_type: str):
     try:
-        moment, identity = (
-            base64.b64decode(value, altchars=b"-_", validate=True).decode().split("|")
-        )
-        parsed = datetime.fromisoformat(moment)
-        if parsed.tzinfo is None:
-            raise ValueError("Timezone required")
-        return parsed, UUID(identity)
-    except (ValueError, UnicodeError, binascii.Error):
+        cursor = json.loads(base64.b64decode(value, altchars=b"-_", validate=True).decode())
+        if not isinstance(cursor, dict) or cursor.get("sort_by") != sort_by or cursor.get("sort_dir") != sort_dir:
+            raise ValueError("Invalid sort")
+        if not isinstance(cursor.get("id"), str):
+            raise ValueError("Invalid identity")
+        identity = UUID(cursor["id"])
+        parsed = cursor["value"]
+        if parsed is not None:
+            if value_type == "datetime":
+                parsed = datetime.fromisoformat(parsed)
+                if parsed.tzinfo is None:
+                    raise ValueError("Timezone required")
+            elif value_type == "number":
+                parsed = Decimal(parsed)
+                if not parsed.is_finite():
+                    raise ValueError("Invalid number")
+            elif value_type == "boolean":
+                if not isinstance(parsed, bool):
+                    raise ValueError("Invalid boolean")
+            elif not isinstance(parsed, str):
+                raise ValueError("Invalid text")
+        return parsed, identity
+    except (ValueError, TypeError, KeyError, UnicodeError, binascii.Error, InvalidOperation):
         raise AccessError(422, "invalid_cursor") from None
 
 
@@ -247,11 +279,36 @@ async def list_leads(
     user: User,
     filters: Annotated[LeadFilters, Depends(lead_filters)],
     limit: int = Query(25, ge=1, le=100),
-    after: str | None = Query(None, max_length=200),
+    after: str | None = Query(None, max_length=30000),
+    sort_by: str = Query("received_at", max_length=107),
+    sort_dir: Literal["asc", "desc"] = "desc",
 ):
-    cursor = decode_cursor(after) if after else None
     async with access(request, user, "leads.view") as (connection, current):
         conditions, parameters = filter_conditions(current, filters)
+        if sort_by.startswith("custom:"):
+            if "leads.pii.view" not in current.permissions:
+                raise AccessError(403, "pii_permission_required")
+            key = sort_by.removeprefix("custom:")
+            value_type = await connection.scalar(text("SELECT field_type FROM crm.lead_custom_fields WHERE org_id=:org AND field_key=:key AND is_active"), {"org": current.org_id, "key": key})
+            if value_type is None:
+                raise AccessError(422, "invalid_sort")
+            parameters["sort_custom"] = key
+            expression = "l.custom_fields ->> :sort_custom"
+            if value_type == "number":
+                expression = f"CAST(NULLIF({expression},'') AS numeric)"
+            elif value_type == "boolean":
+                expression = f"CAST(NULLIF({expression},'') AS boolean)"
+            else:
+                value_type = "text"
+        elif sort_by in SORT_COLUMNS:
+            if sort_by in PII_SORT_COLUMNS and "leads.pii.view" not in current.permissions:
+                raise AccessError(403, "pii_permission_required")
+            expression, value_type = SORT_COLUMNS[sort_by]
+        else:
+            raise AccessError(422, "invalid_sort")
+        if value_type == "text":
+            expression = f"NULLIF(lower(btrim({expression})), '')"
+        cursor = decode_cursor(after, sort_by, sort_dir, value_type) if after else None
         total = (
             await connection.scalar(
                 text(f"SELECT count(*) {JOINS} WHERE {' AND '.join(conditions)}"),
@@ -262,14 +319,19 @@ async def list_leads(
         )
         parameters["limit"] = limit + 1
         if cursor:
-            conditions.append("(l.received_at,l.id)<(:moment,:id)")
-            parameters.update(moment=cursor[0], id=cursor[1])
+            parameters["cursor_id"] = cursor[1]
+            operator = ">" if sort_dir == "asc" else "<"
+            if cursor[0] is None:
+                conditions.append(f"({expression} IS NULL AND l.id{operator}:cursor_id)")
+            else:
+                parameters["cursor_value"] = cursor[0]
+                conditions.append(f"({expression}{operator}:cursor_value OR ({expression}=:cursor_value AND l.id{operator}:cursor_id) OR {expression} IS NULL)")
         rows = (
             (
                 await connection.execute(
                     text(
-                        f"SELECT {fields(current)} {JOINS} WHERE {' AND '.join(conditions)} "
-                        "ORDER BY l.received_at DESC,l.id DESC LIMIT :limit"
+                        f"SELECT {fields(current)}, {expression} AS sort_value {JOINS} WHERE {' AND '.join(conditions)} "
+                        f"ORDER BY {expression} {sort_dir.upper()} NULLS LAST,l.id {sort_dir.upper()} LIMIT :limit"
                     ),
                     parameters,
                 )
@@ -278,9 +340,9 @@ async def list_leads(
             .all()
         )
         return {
-            "data": [lead_payload(row) for row in rows[:limit]],
+            "data": [lead_payload({key: value for key, value in row.items() if key != "sort_value"}) for row in rows[:limit]],
             "next_cursor": (
-                encode_cursor(rows[limit - 1]) if len(rows) > limit else None
+                encode_cursor(rows[limit - 1], sort_by, sort_dir) if len(rows) > limit else None
             ),
             "total": total,
         }

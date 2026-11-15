@@ -29,6 +29,8 @@ export const LEAD_COLUMNS = [
 ] as const;
 
 export type LeadColumn = typeof LEAD_COLUMNS[number]["key"] | `custom:${string}`;
+export type LeadSort = { key: LeadColumn; direction: "asc" | "desc" };
+
 export function isPiiLeadColumn(key: string) {
   return ["email", "phone", "address", "enquiry"].includes(key) || key.startsWith("custom:");
 }
@@ -36,16 +38,29 @@ export function getLeadColumns(customFields: LeadCustomField[] = []): { key: Lea
   return [...LEAD_COLUMNS, ...customFields.filter(field => field.is_active).map(field => ({ key: `custom:${field.field_key}` as const, label: field.label }))];
 }
 
-export default function LeadsTable({ leads, columns, customFields, onArchive, onRestore, busyId, offset = 0, canArchive = false, canRestore = false }: {
+export default function LeadsTable({ leads, columns, customFields, onArchive, onRestore, busyId, offset = 0, canArchive = false, canRestore = false, sort, onSortChange }: {
   customFields?: LeadCustomField[];
   leads: Lead[]; columns?: string[]; onArchive?: (lead: Lead) => void; onRestore?: (lead: Lead) => void;
   busyId?: string | null; offset?: number; canArchive?: boolean; canRestore?: boolean;
+  sort: LeadSort; onSortChange: (sort: LeadSort) => void;
 }) {
   if (!leads.length) return <div className="empty-state"><h3>No leads to display</h3><p className="muted">Create a lead or adjust your filters. Only leads within your data scope are shown.</p></div>;
   const selectedColumns = columns || ["name", "status", "assignee", "received_at"];
   const visible = getLeadColumns(customFields).filter(column => selectedColumns.includes(column.key));
   const hasActions = Boolean(onArchive || onRestore);
-  return <ScrollArea direction="both" maxHeight="65vh" label="Leads table"><table className="leads-table"><thead><tr><th scope="col">Sr. No.</th>{visible.map(column => <th scope="col" key={column.key}>{column.label}</th>)}{hasActions && <th scope="col" className="lead-actions-col">Actions</th>}</tr></thead><tbody>
+  function toggleSort(key: LeadColumn) {
+    onSortChange(sort.key === key
+      ? { key, direction: sort.direction === "asc" ? "desc" : "asc" }
+      : { key, direction: "asc" });
+  }
+  return <ScrollArea className="leads-table-area" direction="both" label="Leads table"><table className="leads-table"><thead><tr><th scope="col">Sr. No.</th>{visible.map(column => {
+    const direction = sort?.key === column.key ? sort.direction : undefined;
+    return <th scope="col" key={column.key} aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}>
+      <button type="button" className="lead-sort-button" aria-label={`Sort by ${column.label}`} onClick={() => toggleSort(column.key)}>
+        {column.label}<span className={`lead-sort-indicator${direction ? ` ${direction}` : ""}`} aria-hidden="true"><Icon name="chevron" size={12} /></span>
+      </button>
+    </th>;
+  })}{hasActions && <th scope="col" className="lead-actions-col">Actions</th>}</tr></thead><tbody>
     {leads.map((lead, index) => <tr key={lead.id}><td className="lead-index">{offset + index + 1}</td>{visible.map(column => <td className={`lead-cell-${column.key}`} key={column.key}>{renderCell(column.key, lead)}</td>)}{hasActions && <td className="lead-actions-col"><div className="actions lead-row-actions">
       <Tip label={`View ${lead.name}`}><Link className="btn lead-icon-button" href={`/leads/${lead.id}`} aria-label={`View ${lead.name}`}><Icon name="external" /></Link></Tip>
       {!lead.archived_at && canArchive && onArchive && <Tip label={`Archive ${lead.name}`} disabled={busyId === lead.id}><button className="btn lead-icon-button" aria-label={`Archive ${lead.name}`} disabled={busyId === lead.id} onClick={() => onArchive(lead)}><Icon name="history" /></button></Tip>}
@@ -61,7 +76,7 @@ function renderCell(column: LeadColumn, lead: Lead) {
     return value === null || value === undefined || value === "" ? "-" : typeof value === "boolean" ? value ? "Yes" : "No" : String(value);
   }
   switch (column) {
-    case "name": return <Link className="lead-name" href={`/leads/${lead.id}`}>{lead.name}</Link>;
+    case "name": return <div className="lead-name-cell"><Link className="lead-name" href={`/leads/${lead.id}`}>{lead.name}</Link>{lead.is_repeat_customer && <span className="repeat-customer-badge">Repeat customer</span>}</div>;
     case "company": return lead.company || "-";
     case "city": return lead.city || "-";
     case "state": return lead.state || "-";
@@ -71,7 +86,7 @@ function renderCell(column: LeadColumn, lead: Lead) {
     case "email": return lead.pii_redacted ? <span className="muted">Restricted</span> : lead.email || "-";
     case "phone": return lead.pii_redacted ? <span className="muted">Restricted</span> : lead.phone || "-";
     case "status_changed_at": return <span className="small muted">{formatDate(lead.status_changed_at)}</span>;
-    case "status": return <span className="lead-status"><span className="status-dot" style={{ background: lead.status_color }} />{lead.status}</span>;
+    case "status": return <span className="lead-status" style={{ "--lead-status-color": lead.status_color } as React.CSSProperties}><span className="status-dot" style={{ background: lead.status_color }} />{lead.status}</span>;
     case "source_name": return lead.source_account_name || "-";
     case "source_provider": return lead.source_provider || "-";
     case "source_record_id": return lead.source_record_id || "-";

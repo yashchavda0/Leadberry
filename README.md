@@ -41,7 +41,8 @@ changing its proxy configuration. If using `CRM_BACKEND_URL`, set it to
   automatic reporting levels, grouped Select all/Clear and per-user landing pages.
 - Scoped PostgreSQL leads: creation/editing, tags, simple custom fields, contact
   redaction, indexed filters/search, cursor pagination, archive/restore and version conflicts.
-- Dashboard counts, status/source breakdowns and recent leads within the caller's scope.
+- Single-page lead dashboard with outcomes, conversion rates, repeat enquiries,
+  intake trends, follow-up priorities, and source/assignee performance within the caller's scope.
 - Authenticated frontend for these features and organization profile settings.
 
 The application uses PostgreSQL exclusively. Existing external data files are
@@ -68,6 +69,44 @@ on top of it. To run backend tests without browser installation:
 ```
 
 The runner creates and removes only a uniquely named disposable test database.
+
+### Lead Dashboard
+
+Open the workspace home page with `dashboard.view`. Owners see organization-wide
+data; other users retain their existing Own/Team/All visibility, including shared
+unassigned leads. Lead drill-down links also require `leads.view`.
+
+- All time is the default. Date ranges select leads by received date in the
+   organization's timezone; archived leads are excluded. Custom ranges support
+   up to 366 days. Outcomes and follow-ups reflect those leads' current state.
+- Conversion rate is won leads divided by all selected leads. Closed-lead win
+   rate is won divided by won plus lost. Lost / cancelled combines every status
+   configured in the lost category, with individual statuses shown separately.
+- Repeat enquiries count distinct visible lead records sharing a normalized
+   phone or case-insensitive email with another selected lead. Shared contacts
+   count phone/email keys, not unique people or verified repeat purchases.
+- Intake shows daily leads received and Won/Lost status-change events for the
+   latest 30 days ending at the selected end date, or today. Event counts include
+   repeat transitions; the movement summary also shows distinct leads moved.
+- Source and assignee tables show the top 20 by volume and disclose omitted
+   lead totals. KPI totals always cover the entire accessible selection.
+- Period performance compares received-lead cohorts with an equal-length
+   immediately preceding period (the latest 30 days vs. the previous 30 by
+   default). Cohort conversion uses each cohort's current status, so recent
+   cohorts have had less time to mature.
+- Pipeline aging buckets open leads by time since receipt; stalled leads have
+   no status change in seven days. The handling-quality median is time to first
+   recorded status-history update, not first customer response. Calls, emails,
+   meetings, revenue, and structured lost reasons are not yet tracked.
+- Pipeline movement counts distinct leads transitioned to Won/Lost and all
+   transition events separately. Stage labels use current status names. Contact
+   quality measures missing phone/email and missing city.
+
+Dashboard regression checks: run the database runner with
+`PYTEST_ADDOPTS="-k dashboard_analytics"`, and run the frontend Playwright suite
+with `--grep "lead dashboard shows"`. The browser test uses deterministic API
+fixtures and captures desktop, mobile, and tablet screenshots.
+
 For manual UI testing: create an Owner, add a role, invite a user in a private
 browser session, assign leads and verify scope/contact redaction, edit conflicts,
 archive/restore, team revocation and cross-organization isolation.

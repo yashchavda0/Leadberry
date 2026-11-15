@@ -49,7 +49,7 @@ export default function AccountRow({ account, provider, providerName, status, ma
       ? <div className="account-row-alert" role="alert"><Icon name="alert" size={16} /><span>{status.detail}</span></div>
       : <p className="small muted account-row-status">{status.detail}</p>}
     <HoldReason className="account-row-hold" reason={live.reason} until={live.until} provider={providerName} />
-    {history && <BackfillProgress history={history} providerName={providerName} manage={manage} busy={busy} onDetails={onImportDetails} onAction={onImportAction} />}
+    {history && history.state !== "completed" && <BackfillProgress history={history} providerName={providerName} manage={manage} busy={busy} onDetails={onImportDetails} onAction={onImportAction} />}
     {open && <dl className="marketplace-details">
       {provider?.fields.map(field => <div key={field.key}><dt>{field.label}</dt><dd className={field.secret ? "mono" : undefined}>{field.secret ? account.credential_hint?.[field.key] || "Saved (hidden)" : account.config[field.key] || "-"}</dd></div>)}
       {provider?.adapter && <div><dt>Sync schedule</dt><dd>Every {formatInterval(account.sync_interval_seconds)}</dd></div>}

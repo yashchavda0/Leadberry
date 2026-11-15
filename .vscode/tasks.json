@@ -14,6 +14,27 @@
 			"command": "$env:PATH = 'C:\\Program Files\\nodejs;' + $env:PATH; $env:CRM_TEST_PORT = '3014'; & 'C:\\Program Files\\nodejs\\node.exe' frontend/node_modules/@playwright/test/cli.js test --config=frontend/playwright.config.ts --grep 'lead table preferences' --reporter=line",
 			"isBackground": false,
 			"problemMatcher": []
+		},
+		{
+			"label": "Verify Lead Dashboard",
+			"type": "shell",
+			"command": "$env:PATH = 'C:\\Program Files\\nodejs;' + $env:PATH; $env:CRM_TEST_PORT = '3017'; & 'C:\\Program Files\\nodejs\\node.exe' frontend/node_modules/@playwright/test/cli.js test --config=frontend/playwright.config.ts --grep 'lead dashboard shows' --reporter=line",
+			"isBackground": false
+		},
+		{
+			"label": "Verify Dashboard API",
+			"type": "shell",
+			"command": "$env:PYTEST_ADDOPTS = '-k dashboard_analytics'; & '.\\backend\\.venv\\Scripts\\python.exe' scripts/Run-PostgresTests.py",
+			"isBackground": false
+		},
+		{
+			"label": "Typecheck Frontend",
+			"type": "shell",
+			"command": "& 'C:\\Program Files\\nodejs\\node.exe' frontend/node_modules/typescript/bin/tsc --noEmit --project frontend/tsconfig.json",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			]
 		}
 	]
 }

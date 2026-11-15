@@ -56,12 +56,22 @@ def fields(user: Principal) -> str:
         if pii
         else "NULL::text AS phone,NULL::text AS email,NULL::text AS address,NULL::text AS enquiry,'{}'::jsonb AS custom_fields"
     )
+    repeat_customer = (
+        "EXISTS(SELECT 1 FROM crm.leads previous "
+        "WHERE previous.org_id=l.org_id AND previous.id<>l.id "
+        "AND previous.received_at<l.received_at AND previous.converted_at<=l.received_at "
+        f"AND {visibility(user).replace('l.', 'previous.')} AND ("
+        "(length(crm.repeat_phone_key(l.phone))>=7 "
+        "AND crm.repeat_phone_key(previous.phone)=crm.repeat_phone_key(l.phone)) "
+        "OR (NULLIF(btrim(l.email),'') IS NOT NULL AND lower(btrim(previous.email))=lower(btrim(l.email)))))"
+        if pii else "NULL::boolean"
+    )
     return (
         "l.id,l.name,l.company,l.city,l.state,l.product,l.source_provider,l.source_record_id,l.status_id,"
         "l.integration_id,a.name AS source_account_name,l.backfill_id,"
         "s.name AS status,s.color AS status_color,l.assigned_membership_id,m.display_name AS assignee,"
         "l.team_id,t.name AS team_name,l.tags,l.next_follow_up_at,l.archived_at,l.row_version,l.received_at,l.updated_at,l.status_changed_at,"
-        f"{contacts},{'false' if pii else 'true'} AS pii_redacted"
+        f"{contacts},{'false' if pii else 'true'} AS pii_redacted,{repeat_customer} AS is_repeat_customer"
     )
 
 

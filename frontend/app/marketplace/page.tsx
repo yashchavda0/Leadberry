@@ -17,7 +17,7 @@ import BackfillWindows from "@/components/marketplace/BackfillWindows";
 import ImportRequests from "@/components/marketplace/ImportRequests";
 import type { ImportAction } from "@/components/marketplace/BackfillProgress";
 import { ErrorNotice, Field, Loading } from "@/components/Ui";
-import { crm, errorMessage, formatInterval, formatWhen, holdReasonText, marketplaceErrors, type MarketplaceAccount, type MarketplaceProvider, type Page } from "@/lib/crm";
+import { crm, errorMessage, formatInterval, formatWhen, holdReasonText, marketplaceErrorMessage, SERVICE_UNAVAILABLE, type MarketplaceAccount, type MarketplaceProvider, type Page } from "@/lib/crm";
 
 type Catalog = { data: MarketplaceProvider[]; credential_storage_ready: boolean; worker_online: boolean; worker_last_seen_at: string | null };
 type Action = "test" | "sync" | "activate" | "pause" | "retire";
@@ -27,13 +27,13 @@ export default function MarketplacePage() {
   return <Guard permission="marketplace.view"><MarketplaceWorkspace /></Guard>;
 }
 
-const failure = (code: string | null) => code ? marketplaceErrors[code] || code.replaceAll("_", " ") : "";
+const failure = (code: string | null) => code ? marketplaceErrorMessage(code) : "";
 const pending = (account: MarketplaceAccount) => account.last_run_state === "queued" || account.last_run_state === "running";
 const verified = (account: MarketplaceAccount) => account.verified_version === account.credential_version;
 
 function state(account: MarketplaceAccount, workerOnline: boolean): { label: string; tone: Tone; detail: string } {
   if (pending(account) && account.last_run_kind === "test")
-    return { label: "Checking", tone: "warn", detail: workerOnline ? "Testing the API key with the provider..." : "Queued: the connector worker is offline." };
+    return { label: "Checking", tone: "warn", detail: workerOnline ? "Testing the API key with the provider..." : SERVICE_UNAVAILABLE };
   if (account.status === "error" && account.safe_error_code) return { label: "Failed", tone: "danger", detail: failure(account.safe_error_code) || "The last request failed." };
   if (account.last_run_state === "cancelled" && account.last_run_error) return { label: "Failed", tone: "danger", detail: failure(account.last_run_error) };
   if (account.status === "active") {
@@ -42,7 +42,7 @@ function state(account: MarketplaceAccount, workerOnline: boolean): { label: str
     if (account.safe_error_code && !pending(account))
       return { label: "Live", tone: "warn", detail: `${failure(account.safe_error_code)} ${live.reason ? every : "Retrying automatically."}` };
     if (pending(account) && account.last_run_kind !== "backfill") return { label: "Syncing", tone: "success", detail: every };
-    return { label: "Live", tone: "success", detail: !workerOnline ? "Paused until the connector worker is running." : live.reason || !live.until ? every : `${every} Next sync ${formatWhen(live.until)}.` };
+    return { label: "Live", tone: "success", detail: !workerOnline ? SERVICE_UNAVAILABLE : live.reason || !live.until ? every : `${every} Next sync ${formatWhen(live.until)}.` };
   }
   if (account.status === "paused") return { label: "Paused", tone: "", detail: "Automatic lead sync is paused." };
   if (account.safe_error_code && !pending(account)) return { label: verified(account) ? "Verified" : "Not verified", tone: "warn", detail: failure(account.safe_error_code) };
@@ -113,10 +113,10 @@ function MarketplaceWorkspace() {
 
   // Tells the user when a request will really run and why it is not immediate.
   function queued(account: MarketplaceAccount, label: string) {
-    if (!workerOnline) return `${label} queued. The connector worker is offline, so it will run once the worker starts.`;
+    if (!workerOnline) return SERVICE_UNAVAILABLE;
     const live = account.schedule_status.live;
     const startsAt = live.next_request_at && Date.parse(live.next_request_at) > Date.now() + 5000 ? live.next_request_at : null;
-    if (!startsAt) return `${label} queued for the connector worker.`;
+    if (!startsAt) return `${label} queued.`;
     const reason = live.reason || "waiting_key_slot";
     return `${label} queued. It runs ${formatWhen(startsAt)}: ${holdReasonText(reason, providerName(account.provider_code), null)}`;
   }
@@ -168,10 +168,7 @@ function MarketplaceWorkspace() {
         <button className="btn" onClick={() => void load()}><Icon name="refresh" />Refresh</button>
       </div>
     </div>
-    {catalog && !workerOnline && <div className="alert alert-info">
-      The connector worker is not running, so connection tests and syncs stay queued. Start it with <code>python scripts/Invoke-LocalBackend.py worker</code> (or run the backend with <code>Invoke-LocalBackend.py run</code>, which starts it automatically).
-    </div>}
-    {catalog && !catalog.credential_storage_ready && <div className="alert alert-info">Secure credential storage is not configured on the server.</div>}
+    {catalog && (!workerOnline || !catalog.credential_storage_ready) && <div className="alert alert-info">{SERVICE_UNAVAILABLE}</div>}
     <ErrorNotice error={error} />
     <div className="management-tabs" role="tablist" aria-label="Marketplace views">
       <button role="tab" aria-selected={tab === "providers"} onClick={() => { setTab("providers"); setSearch(""); }}>Providers</button>

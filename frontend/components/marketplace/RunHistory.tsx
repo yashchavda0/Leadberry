@@ -7,7 +7,7 @@ import ScrollArea from "@/components/ScrollArea";
 import { Tip } from "@/components/ui/tip";
 import StatusBadge from "@/components/StatusBadge";
 import { ErrorNotice, Loading } from "@/components/Ui";
-import { formatDate, formatDay, marketplaceErrors, type MarketplaceAccount, type MarketplaceRun } from "@/lib/crm";
+import { formatDate, formatDay, marketplaceErrorMessage, type MarketplaceAccount, type MarketplaceRun } from "@/lib/crm";
 import { useResource } from "@/lib/hooks";
 
 const tone = (state: string) => state === "completed" ? "success" : state === "failed" ? "danger" : state === "cancelled" ? "" : "warn";
@@ -28,7 +28,7 @@ export default function RunHistory({ account, providerName, onClose }: { account
           <div className="run-head"><strong>{title(run)}</strong><StatusBadge tone={tone(run.state)}>{run.state}</StatusBadge></div>
           <span className="small muted">{formatDate(run.created_at)}</span>
           {run.kind !== "test" && run.state === "completed" && <div className="run-stats"><span><strong>{run.fetched_count}</strong> fetched</span><span><strong>{run.accepted_count}</strong> new leads</span></div>}
-          {run.safe_error_code && <div className="run-error" role="alert"><span>{marketplaceErrors[run.safe_error_code] || run.safe_error_code.replaceAll("_", " ")}</span></div>}
+          {run.safe_error_code && <div className="run-error" role="alert"><span>{marketplaceErrorMessage(run.safe_error_code)}</span></div>}
         </div>
       </li>)}
     </ol></ScrollArea>}

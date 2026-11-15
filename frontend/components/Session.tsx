@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, crm, errorMessage, type Identity, type Organization } from "@/lib/crm";
 import Sidebar from "./Sidebar";
+import Topbar from "./Topbar";
 
 type Session = {
   identity: Identity | null; organization: Organization | null; pending: boolean; error: string;
@@ -62,7 +63,7 @@ export default function SessionProvider({ children }: { children: React.ReactNod
   return <Context.Provider value={value}>
     {isPublic ? children : pending ? <div className="loading-screen" role="status">Loading your workspace...</div> :
       error ? <div className="auth-container"><div className="card"><h1>Workspace unavailable</h1><p role="alert">{error}</p><button className="btn" onClick={() => void reload()}>Retry</button> <Link href="/login">Sign in</Link></div></div> :
-        identity ? <div className="layout"><Sidebar /><div className="workspace"><header className="topbar"><div><strong>{organization?.name}</strong><span className="muted small"> / {organization?.slug}</span></div><Link href="/account">{identity.is_owner ? "Owner" : "Member"} <span className="badge">{identity.data_scope} scope</span></Link></header><main className="main">{children}</main></div></div> :
+        identity ? <div className="layout"><Sidebar /><div className="workspace"><Topbar /><main className="main">{children}</main></div></div> :
           <div className="loading-screen">Redirecting to sign in...</div>}
   </Context.Provider>;
 }

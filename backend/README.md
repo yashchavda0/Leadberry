@@ -166,7 +166,12 @@ and existing visibility constraints.
 ### Shared request contracts
 
 List APIs use keyset pagination: `limit` is bounded to 100 and
-`after=<next_cursor>` retrieves the next page. Lead cursors include timestamp/UUID.
+`after=<next_cursor>` retrieves the next page. Lead lists accept `sort_by` and
+`sort_dir=asc|desc` (default: `received_at` descending). Sorting applies to the
+entire filtered result, uses the lead ID as a tie-breaker, and puts empty values
+last. Active custom fields use `sort_by=custom:<field_key>`; contact and custom
+fields require `leads.pii.view`. Cursors are tied to the selected sort and must
+be restarted when it changes. Concurrent edits can move records between pages.
 Lead filters include `q`, `status_id`, `source`, `tag`, `assignee`, `start`, `end`
 and `archived`. Search uses indexed whole words in name/company/product/city,
 not contact fields. Date filters use UTC and the end date is inclusive.

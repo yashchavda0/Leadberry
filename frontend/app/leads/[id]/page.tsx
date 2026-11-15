@@ -102,7 +102,7 @@ function Detail() {
   }
 
   return <div className="lead-detail-page">
-    <Button variant="ghost" size="icon" asChild className="lead-back-link"><Link href="/leads" aria-label="Back to leads" title="Back to leads"><Icon name="chevronLeft" /></Link></Button>
+    <Button variant="outline" size="icon" asChild className="lead-back-link"><Link href="/leads" aria-label="Back to leads" title="Back to leads"><Icon name="chevronLeft" /></Link></Button>
     <ErrorNotice error={resource.error} />
     {resource.loading && <Loading />}
     {resource.error && <Button variant="outline" onClick={() => { setEditing(false); resource.reload(); }}>Reload lead</Button>}
@@ -114,12 +114,9 @@ function Detail() {
             <div className="lead-identity-copy">
               <span className="eyebrow">{lead.source_provider.toUpperCase()} LEAD</span>
               <h1>{lead.name}</h1>
+              {lead.is_repeat_customer && <span className="repeat-customer-badge">Repeat customer</span>}
               <p>{lead.company || "No company"}</p>
             </div>
-          </div>
-          <div className="lead-product-summary">
-            <div><span className="field-label">Product enquiry</span><strong>{lead.product || "Product not specified"}</strong></div>
-            <Button variant="link" size="sm" onClick={() => setActiveTab("enquiry")}>View enquiry</Button>
           </div>
           <div className="lead-identity-contact">
             <div><span>Email</span><strong>{lead.pii_redacted ? "Restricted" : lead.email || "Not provided"}</strong></div>
@@ -135,6 +132,10 @@ function Detail() {
           <div className="lead-overview-item"><span>Lead owner</span><strong>{lead.assignee || "Unassigned"}</strong></div>
           <div className="lead-overview-item"><span>Next follow-up</span><strong>{formatDate(lead.next_follow_up_at)}</strong></div>
           <div className="lead-overview-item"><span>Lead source</span><strong>{lead.source_account_name || lead.source_provider}</strong></div>
+          <div className="lead-overview-product">
+            <div><span className="field-label">Product enquiry</span><strong>{lead.product || "Product not specified"}</strong></div>
+            <Button variant="link" size="sm" onClick={() => setActiveTab("enquiry")}>View enquiry</Button>
+          </div>
           {lead.archived_at && <Badge variant="outline" className="lead-archived-label">Archived</Badge>}
           <div className="lead-detail-actions">
             <Button variant="outline" size="sm" onClick={() => { setEditing(false); resource.reload(); }}>Reload</Button>
@@ -220,11 +221,14 @@ function Detail() {
                 </SelectItem>)}
               </SelectContent>
             </Select> : <p className="muted">No active statuses are available.</p>}
-            {needsFollowUpTime && <label className="lead-status-note lead-status-followup" htmlFor="lead-status-followup">Next contact date &amp; time <span aria-hidden="true">*</span>
-              <input id="lead-status-followup" className="input" type="datetime-local" value={nextFollowUpAt} onChange={event => setNextFollowUpAt(event.target.value)} required={targetStatus?.type === "pending" || targetStatus?.required_fields?.includes("next_follow_up_at")} disabled={statusBusy} />
+            {needsFollowUpTime && <label className="lead-status-note lead-status-followup" htmlFor="lead-status-followup"><span className="lead-status-note-title">Next contact date &amp; time <span aria-hidden="true">*</span></span>
+              <span className="lead-status-datetime">
+                <input id="lead-status-followup" className="input" type="datetime-local" value={nextFollowUpAt} onChange={event => setNextFollowUpAt(event.target.value)} required={targetStatus?.type === "pending" || targetStatus?.required_fields?.includes("next_follow_up_at")} disabled={statusBusy} />
+                {!nextFollowUpAt && <span className="lead-status-datetime-placeholder" aria-hidden="true">Select date and time</span>}
+              </span>
               <small className="hint">Choose when to try contacting this lead again.</small>
             </label>}
-            <label className="lead-status-note" htmlFor="lead-status-note">Note <span aria-hidden="true">*</span>
+            <label className="lead-status-note" htmlFor="lead-status-note"><span className="lead-status-note-title">Note <span aria-hidden="true">*</span></span>
               <textarea id="lead-status-note" className="input" value={statusNote} onChange={event => setStatusNote(event.target.value)} maxLength={2000} rows={3} required disabled={statusBusy} />
             </label>
             <div className="lead-status-editor-footer">
@@ -241,12 +245,15 @@ function Detail() {
 function LeadAttributeTable({ title, items, emptyMessage = "No details available." }: { title: string; items: [string, string][]; emptyMessage?: string }) {
   return <div className="lead-attribute-table-wrap">
     <table className="lead-attribute-table">
-      <thead><tr><th colSpan={2}>{title}</th></tr></thead>
+      <thead>
+        <tr><th className="lead-attribute-title" colSpan={2}>{title}</th></tr>
+        <tr className="lead-attribute-columns-head"><th scope="col">Parameter</th><th scope="col">Value</th></tr>
+      </thead>
       <tbody>{items.length ? items.map(([label, value]) => <tr key={label}><th scope="row">{label}</th><td>{value}</td></tr>) : <tr><td className="lead-attribute-empty" colSpan={2}>{emptyMessage}</td></tr>}</tbody>
     </table>
   </div>;
 }
 
 function LeadEvent({ title, date, note, actor }: { title: string; date: string; note?: string | null; actor?: string }) {
-  return <div className="lead-event"><span className="lead-event-marker" /><div><strong>{title}</strong><time>{date}</time>{actor && <span className="small muted">By {actor}</span>}{note !== undefined && <p className="lead-event-note">{note || "Note restricted by contact permission."}</p>}</div></div>;
+  return <div className="lead-event"><span className="lead-event-marker" /><div><strong>{title}</strong><time>{date}</time>{actor && <span className="small muted">By {actor}</span>}{note !== undefined && <div className="lead-event-message"><span className="lead-event-message-label">Note</span><p className="lead-event-note">{note || "Note restricted by contact permission."}</p></div>}</div></div>;
 }

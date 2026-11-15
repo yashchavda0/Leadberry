@@ -11,7 +11,7 @@ import ProviderLogo from "@/components/ProviderLogo";
 import ScrollArea from "@/components/ScrollArea";
 import StatusBadge from "@/components/StatusBadge";
 import { ErrorNotice, Loading, Pagination } from "@/components/Ui";
-import { formatDate, formatDay, marketplaceErrors, type BackfillWindow, type HistoryStatus, type MarketplaceAccount } from "@/lib/crm";
+import { formatDate, formatDay, marketplaceErrorMessage, type BackfillWindow, type HistoryStatus, type MarketplaceAccount } from "@/lib/crm";
 import { usePaged } from "@/lib/hooks";
 
 const tones: Record<BackfillWindow["state"], "success" | "warn" | "danger" | ""> = {
@@ -48,7 +48,7 @@ export default function BackfillWindows({ account, history, providerName, onClos
         </div>
         <span className="small muted">{item.fetched_count} fetched · {item.accepted_count} new{item.attempts ? ` · ${item.attempts} failed attempt${item.attempts === 1 ? "" : "s"}` : ""} · updated {formatDate(item.updated_at)}</span>
         <HoldReason reason={item.hold_reason} until={item.state === "pending" ? item.next_attempt_at : null} provider={providerName} />
-        {item.state === "failed" && item.safe_error_code && <p className="run-error small" role="alert">{marketplaceErrors[item.safe_error_code] || item.safe_error_code.replaceAll("_", " ")}</p>}
+        {item.state === "failed" && item.safe_error_code && <p className="run-error small" role="alert">{marketplaceErrorMessage(item.safe_error_code)}</p>}
       </li>)}
     </ol></ScrollArea>}
     <Pagination list={windows} />

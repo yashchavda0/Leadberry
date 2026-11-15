@@ -15,6 +15,7 @@ from .modules.identity.service import AccessError, IdentityService
 from .modules.leads.dashboard import router as dashboard_router
 from .modules.leads.configuration import router as lead_configuration_router
 from .modules.leads.export import router as lead_export_router
+from .modules.leads.reports import router as reports_router
 from .modules.leads.routes import router as leads_router
 from .modules.leads.teams import router as teams_router
 from .modules.marketplace.routes import router as marketplace_router
@@ -72,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity_router)
     # Before the leads router, whose /leads/{lead_id} would otherwise capture /leads/export.
     app.include_router(lead_export_router)
+    app.include_router(reports_router)
     app.include_router(leads_router)
     app.include_router(lead_configuration_router)
     app.include_router(teams_router)

@@ -20,6 +20,12 @@ Migration `0003_leads` implements PostgreSQL leads, tags/simple custom fields,
 own/team/all-scoped reads and writes, redaction, keyset pagination, optimistic edits,
 archive/restore, team membership, dashboard aggregates and organization profile updates.
 The authenticated frontend uses only this API and all runtime storage uses PostgreSQL.
+Migration `0015_repeat_customers` records the first conversion time and marks a
+later enquiry as a repeat customer when an earlier visible converted lead shares
+a normalized phone number or email. The flag is withheld without contact-data
+permission. This is a contact match, not proof of a separate purchase. Existing
+conversions are recovered from current won statuses and history whose status name
+still matches a won status; older renamed or unrecorded conversions may be missed.
 Migration `0004_role_hierarchy` adds a tenant-bound reporting parent and per-user
 landing preferences. User management is centralized at `/users` with Users,
 Teams (Owner-only), Roles and Permissions tabs, gated by existing access.

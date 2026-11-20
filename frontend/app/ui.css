@@ -314,3 +314,25 @@ th[aria-sort="ascending"] .ui-sort-icon { transform: rotate(180deg); }
 .report-actions { display: flex; align-items: center; gap: 8px; }
 .report-total { background: #f8fafc; font-weight: 700; }
 .report-table thead th a { color: inherit; text-transform: none; letter-spacing: 0; }
+
+/* Service availability */
+.service-down { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 20% 10%, #f5f3ff, #fff 60%); }
+.service-down-card { display: grid; justify-items: center; gap: 12px; width: min(480px, 100%); padding: 36px 32px; text-align: center; border: 1px solid var(--border); border-radius: 18px; background: #fff; box-shadow: 0 20px 60px #1118271a; }
+.service-down-icon { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: #fee2e2; color: #b91c1c; animation: service-pulse 2s ease-in-out infinite; }
+@keyframes service-pulse { 0%, 100% { box-shadow: 0 0 0 0 #ef444440; } 50% { box-shadow: 0 0 0 14px #ef444400; } }
+.service-down-card h1 { margin: 6px 0 0; font-size: 24px; }
+.service-down-card p { margin: 0; line-height: 1.55; }
+.service-down-tips { display: grid; gap: 6px; margin: 6px 0; padding: 12px 16px 12px 32px; border-radius: 12px; background: #f8fafc; text-align: left; font-size: 13px; color: #475569; }
+.service-down-actions { margin-top: 4px; }
+.service-banner { display: flex; align-items: center; gap: 10px; padding: 10px 32px; background: #fef2f2; border-bottom: 1px solid #fecaca; color: #991b1b; font-size: 14px; font-weight: 600; }
+.service-banner span { flex: 1; }
+.service-banner button { padding: 4px 14px; border: 1px solid #fca5a5; border-radius: 999px; background: #fff; color: #991b1b; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.service-banner button:hover:not(:disabled) { background: #fee2e2; }
+
+.load-failed { display: flex; align-items: center; gap: 14px; margin: 12px 0; padding: 16px 18px; border: 1px solid #fecaca; border-radius: 12px; background: #fef2f2; color: #991b1b; }
+.load-failed.outage { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.load-failed > div { flex: 1; min-width: 0; }
+.load-failed p { margin: 2px 0 0; }
+.load-failed-icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 50%; background: #fee2e2; color: #b91c1c; }
+.load-failed.outage .load-failed-icon { background: #fee2e2; color: #b91c1c; }
+.load-failed .muted { color: #b45353; }

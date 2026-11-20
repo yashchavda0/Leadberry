@@ -28,6 +28,12 @@ export function useResource<T>(path: string | null, keepData = false) {
     }
     return () => controller.abort();
   }, [path, revision, keepData]);
+  // Reload automatically once the service is back, so a failed list fills in without a manual retry.
+  useEffect(() => {
+    if (!error) return;
+    window.addEventListener("crm-service-up", reload);
+    return () => window.removeEventListener("crm-service-up", reload);
+  }, [error, reload]);
   return { data, error, loading, reload };
 }
 

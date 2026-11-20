@@ -10,8 +10,6 @@ import { Tip } from "./ui/tip";
 export const NAV: { href: string; label: string; permission: string; icon: IconName }[] = [
   { href: "/", label: "Overview", permission: "dashboard.view", icon: "dashboard" },
   { href: "/leads", label: "Leads", permission: "leads.view", icon: "target" },
-  { href: "/settings/lead-statuses", label: "Lead statuses", permission: "settings.view", icon: "check" },
-  { href: "/settings/lead-fields", label: "Custom fields", permission: "settings.view", icon: "panel" },
   { href: "/users", label: "User management", permission: "users.view", icon: "leads" },
   { href: "/marketplace", label: "Marketplace", permission: "marketplace.view", icon: "store" },
   { href: "/reports", label: "Reports", permission: "reports.view", icon: "chart" },
@@ -31,8 +29,6 @@ export default function Sidebar() {
     const link = <Link key={href} href={href} className={`nav-link${active ? " active" : ""}`} aria-label={collapsed ? label : undefined} aria-current={active ? "page" : undefined}><Icon name={icon} size={20} /><span className="nav-label">{label}</span></Link>;
     return collapsed ? <Tip key={href} label={label} side="right">{link}</Tip> : link;
   };
-  const links = NAV.filter(link => can(link.permission) || link.href === "/users" && can("roles.view"));
-  const activeHref = links.filter(link => pathname === link.href || link.href !== "/" && pathname.startsWith(`${link.href}/`)).sort((first, second) => second.href.length - first.href.length)[0]?.href;
   return (
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
       <div className="sidebar-head">
@@ -40,7 +36,7 @@ export default function Sidebar() {
       </div>
       <span className="nav-section nav-label">Menu</span>
       <nav className="nav" aria-label="Main">
-        {links.map(link => item(link.href, link.label, link.icon, link.href === activeHref))}
+        {NAV.filter(link => can(link.permission) || link.href === "/users" && can("roles.view")).map(link => item(link.href, link.label, link.icon, link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)))}
       </nav>
       <div className="sidebar-footer">
         <span className="nav-section nav-label">Account</span>

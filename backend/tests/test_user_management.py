@@ -144,6 +144,67 @@ def test_landing_page_invite_membership_overrides_and_owner(owner):
         "status": "active", "role_ids": [], "landing_page": "/users",
     }).status_code == 200
     assert owner.get("/api/v1/auth/me").json()["landing_page"] == "/users"
+
+
+def test_invitation_recovery_and_personal_profiles(owner):
+    assert owner.get("/api/v1/auth/me").json()["display_name"] == "Owner"
+    assert owner.put("/api/v1/auth/profile", json={"display_name": "Workspace Owner"}).status_code == 204
+    assert owner.get("/api/v1/auth/me").json()["display_name"] == "Workspace Owner"
+
+    body = {"display_name": "Invited Agent", "email": f"{uuid4()}@example.com"}
+    original_response = owner.post("/api/v1/invitations", json=body)
+    assert original_response.status_code == 201, original_response.text
+    original = original_response.json()
+    path = f"/api/v1/memberships/{original['membership_id']}/invitation"
+    recovered = owner.get(path)
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.headers["Cache-Control"] == "no-store"
+    assert recovered.json()["invitation_token"] == original["invitation_token"]
+    assert "invitation_token" not in owner.get("/api/v1/memberships").text
+
+    reissued = owner.post("/api/v1/invitations", json=body).json()
+    assert owner.get(path).json()["invitation_token"] == reissued["invitation_token"]
+    assert reissued["invitation_token"] != original["invitation_token"]
+    options = {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    with TestClient(create_app(owner.app.state.configuration), backend_options=options) as agent:
+        password = f"test-password-{uuid4()}"
+        accept_path = "/api/v1/auth/accept-invite"
+        assert agent.post(accept_path, json={"invitation_token": original["invitation_token"], "password": password}).status_code == 401
+        accepted = agent.post(accept_path, json={"invitation_token": reissued["invitation_token"], "password": password})
+        assert accepted.status_code == 200, accepted.text
+        assert owner.get(path).status_code == 404
+        pending = owner.post("/api/v1/invitations", json={**body, "email": f"{uuid4()}@example.com"}).json()
+        assert agent.get(f"/api/v1/memberships/{pending['membership_id']}/invitation").status_code == 403
+        assert agent.get("/api/v1/auth/me").json()["display_name"] == body["display_name"]
+        profile_path = "/api/v1/auth/profile"
+        assert agent.get(profile_path).json() == {**body, "phone": None, "job_title": None}
+        updated = {"display_name": "Renamed Agent", "phone": "+1 202 555 0110", "job_title": "Sales specialist"}
+        assert agent.put(profile_path, json=updated).status_code == 403
+        agent.headers["X-CSRF-Token"] = agent.cookies["crm_csrf"]
+        assert agent.put(profile_path, json={"display_name": "  "}).status_code == 422
+        assert agent.put(profile_path, json=updated).status_code == 204
+        assert agent.get(profile_path).json() == {**updated, "email": body["email"]}
+        assert agent.get("/api/v1/auth/me").json()["display_name"] == updated["display_name"]
+        assert owner.get("/api/v1/auth/me").json()["display_name"] == "Workspace Owner"
+
+
+def test_invitation_recovery_stops_at_expiry(owner):
+    from sqlalchemy import text
+    from app.core.database import tenant_transaction
+
+    invitation = owner.post("/api/v1/invitations", json={"display_name": "Pending", "email": f"{uuid4()}@example.com"}).json()
+    org_id = UUID(owner.get("/api/v1/auth/me").json()["organization_id"])
+
+    async def expire():
+        async with tenant_transaction(owner.app.state.identity_service.engine, org_id) as connection:
+            await connection.execute(
+                text("UPDATE crm.organization_invitations SET expires_at=now()-interval '1 second' "
+                     "WHERE org_id=:org AND membership_id=:member"),
+                {"org": org_id, "member": UUID(invitation["membership_id"])},
+            )
+
+    owner.portal.call(expire)
+    assert owner.get(f"/api/v1/memberships/{invitation['membership_id']}/invitation").status_code == 404
     assert owner.delete(f"/api/v1/memberships/{own}").status_code == 409
     assert owner.get("/api/v1/auth/me").status_code == 200
     pending = owner.post("/api/v1/invitations", json={

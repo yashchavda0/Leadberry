@@ -114,7 +114,6 @@ function Detail() {
             <div className="lead-identity-copy">
               <span className="eyebrow">{lead.source_provider.toUpperCase()} LEAD</span>
               <h1>{lead.name}</h1>
-              {lead.is_repeat_customer && <span className="repeat-customer-badge">Repeat customer</span>}
               <p>{lead.company || "No company"}</p>
             </div>
           </div>
@@ -221,14 +220,11 @@ function Detail() {
                 </SelectItem>)}
               </SelectContent>
             </Select> : <p className="muted">No active statuses are available.</p>}
-            {needsFollowUpTime && <label className="lead-status-note lead-status-followup" htmlFor="lead-status-followup"><span className="lead-status-note-title">Next contact date &amp; time <span aria-hidden="true">*</span></span>
-              <span className="lead-status-datetime">
-                <input id="lead-status-followup" className="input" type="datetime-local" value={nextFollowUpAt} onChange={event => setNextFollowUpAt(event.target.value)} required={targetStatus?.type === "pending" || targetStatus?.required_fields?.includes("next_follow_up_at")} disabled={statusBusy} />
-                {!nextFollowUpAt && <span className="lead-status-datetime-placeholder" aria-hidden="true">Select date and time</span>}
-              </span>
+            {needsFollowUpTime && <label className="lead-status-note lead-status-followup" htmlFor="lead-status-followup">Next contact date &amp; time <span aria-hidden="true">*</span>
+              <input id="lead-status-followup" className="input" type="datetime-local" value={nextFollowUpAt} onChange={event => setNextFollowUpAt(event.target.value)} required={targetStatus?.type === "pending" || targetStatus?.required_fields?.includes("next_follow_up_at")} disabled={statusBusy} />
               <small className="hint">Choose when to try contacting this lead again.</small>
             </label>}
-            <label className="lead-status-note" htmlFor="lead-status-note"><span className="lead-status-note-title">Note <span aria-hidden="true">*</span></span>
+            <label className="lead-status-note" htmlFor="lead-status-note">Note <span aria-hidden="true">*</span>
               <textarea id="lead-status-note" className="input" value={statusNote} onChange={event => setStatusNote(event.target.value)} maxLength={2000} rows={3} required disabled={statusBusy} />
             </label>
             <div className="lead-status-editor-footer">
@@ -255,5 +251,5 @@ function LeadAttributeTable({ title, items, emptyMessage = "No details available
 }
 
 function LeadEvent({ title, date, note, actor }: { title: string; date: string; note?: string | null; actor?: string }) {
-  return <div className="lead-event"><span className="lead-event-marker" /><div><strong>{title}</strong><time>{date}</time>{actor && <span className="small muted">By {actor}</span>}{note !== undefined && <div className="lead-event-message"><span className="lead-event-message-label">Note</span><p className="lead-event-note">{note || "Note restricted by contact permission."}</p></div>}</div></div>;
+  return <div className="lead-event"><span className="lead-event-marker" /><div><strong>{title}</strong><time>{date}</time>{actor && <span className="small muted">By {actor}</span>}{note !== undefined && <p className="lead-event-note">{note || "Note restricted by contact permission."}</p>}</div></div>;
 }

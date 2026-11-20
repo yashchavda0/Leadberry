@@ -1,0 +1,237 @@
+{
+  "info": {
+    "_postman_id": "9dc6d9dc-2e9c-48e2-aa1b-8d0bb5f706f4",
+    "name": "CRM API Security - Rate Limit and DDoS Protection",
+    "description": "Dummy-data security checks for the CRM API. Set baseUrl before running. Use Run collection and keep the default request order. The Flood and Brute Force requests loop automatically.\n\nExpected checks:\n- Normal request: HTTP 200 with X-RateLimit-Limit.\n- Flood request: first 120 requests are accepted, then HTTP 429 with Retry-After.\n- Oversized body: HTTP 413.\n- Invalid login: first 10 account attempts are accepted by the throttle layer (normally HTTP 401), then HTTP 429.\n\nIn local development, loopback is a trusted proxy and X-Forwarded-For is accepted so each scenario can use a separate test address. In production, configure TRUSTED_PROXY_NETWORKS to only the exact proxy/load-balancer CIDRs. These are defensive tests; do not run against production without authorization and a reduced concurrency/limit configuration.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000", "type": "string" },
+    { "key": "apiLimit", "value": "120", "type": "number" },
+    { "key": "dummyOrganization", "value": "security-test-org", "type": "string" },
+    { "key": "dummyEmail", "value": "nonexistent-user@example.com", "type": "string" },
+    { "key": "dummyPassword", "value": "DummyPassword123!", "type": "string" },
+    { "key": "floodIteration", "value": "0", "type": "number" },
+    { "key": "loginIteration", "value": "0", "type": "number" },
+    { "key": "oversizedBody", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. API Flood Protection",
+      "description": "Run this folder in Collection Runner. It automatically sends apiLimit + 1 health requests from one dummy forwarded client address.",
+      "item": [
+        {
+          "name": "1.1 Reset flood counter metadata",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Forwarded-For", "value": "198.51.100.20", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health/live",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "health", "live"]
+            },
+            "description": "Resets only Postman loop variables. It does not clear backend/Redis counters. Use a new forwarded address if the previous test was run less than 60 seconds ago."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('floodIteration', 1);",
+                  "pm.test('Backend is reachable', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 429]);",
+                  "});",
+                  "pm.test('Rate-limit policy is advertised', function () {",
+                  "  pm.expect(pm.response.headers.get('X-RateLimit-Limit')).to.exist;",
+                  "});",
+                  "pm.execution.setNextRequest('1.2 Flood request loop');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1.2 Flood request loop",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-Forwarded-For", "value": "198.51.100.20", "type": "text" },
+              { "key": "X-Request-ID", "value": "{{$guid}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health/live",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "health", "live"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const iteration = Number(pm.collectionVariables.get('floodIteration'));",
+                  "const limit = Number(pm.collectionVariables.get('apiLimit'));",
+                  "if (iteration < limit) {",
+                  "  pm.test(`Request ${iteration}: accepted`, function () {",
+                  "    pm.expect(pm.response.code).to.equal(200);",
+                  "  });",
+                  "  pm.collectionVariables.set('floodIteration', iteration + 1);",
+                  "  pm.execution.setNextRequest('1.2 Flood request loop');",
+                  "} else {",
+                  "  pm.test(`Request ${iteration + 1}: rejected by flood control`, function () {",
+                  "    pm.expect(pm.response.code).to.equal(429);",
+                  "    pm.expect(pm.response.json().code).to.equal('rate_limit_exceeded');",
+                  "    pm.expect(pm.response.headers.get('Retry-After')).to.exist;",
+                  "  });",
+                  "  console.log('Flood protection verified:', pm.response.code, pm.response.text());",
+                  "  pm.execution.setNextRequest('2.1 Oversized request body');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Request Size Protection",
+      "item": [
+        {
+          "name": "2.1 Oversized request body",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json", "type": "text" },
+              { "key": "X-Forwarded-For", "value": "198.51.100.30", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{{oversizedBody}}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "The pre-request script creates a body slightly larger than the default 1 MiB limit. Expected result: HTTP 413 before login processing."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('oversizedBody', 'x'.repeat(1048577));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Oversized body is rejected', function () {",
+                  "  pm.expect(pm.response.code).to.equal(413);",
+                  "  pm.expect(pm.response.json().code).to.equal('request_too_large');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Login Brute-force Protection",
+      "description": "Uses a nonexistent account and an intentionally invalid dummy password. The 11th attempt for the same organization/account must return HTTP 429.",
+      "item": [
+        {
+          "name": "3.1 Reset login metadata",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json", "type": "text" },
+              { "key": "X-Forwarded-For", "value": "198.51.100.40", "type": "text" },
+              { "key": "Origin", "value": "http://localhost:3000", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organization_slug\": \"{{dummyOrganization}}\",\n  \"email\": \"{{dummyEmail}}\",\n  \"password\": \"{{dummyPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('loginIteration', 1);",
+                  "pm.test('Login endpoint processed dummy credentials', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([401, 429]);",
+                  "});",
+                  "pm.execution.setNextRequest('3.2 Brute-force request loop');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3.2 Brute-force request loop",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json", "type": "text" },
+              { "key": "X-Forwarded-For", "value": "198.51.100.40", "type": "text" },
+              { "key": "Origin", "value": "http://localhost:3000", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organization_slug\": \"{{dummyOrganization}}\",\n  \"email\": \"{{dummyEmail}}\",\n  \"password\": \"{{dummyPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const iteration = Number(pm.collectionVariables.get('loginIteration'));",
+                  "if (iteration < 10) {",
+                  "  pm.test(`Login attempt ${iteration}: throttle accepts request`, function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "  });",
+                  "  pm.collectionVariables.set('loginIteration', iteration + 1);",
+                  "  pm.execution.setNextRequest('3.2 Brute-force request loop');",
+                  "} else {",
+                  "  pm.test('11th login attempt: blocked', function () {",
+                  "    pm.expect(pm.response.code).to.equal(429);",
+                  "    pm.expect(pm.response.json().code).to.equal('too_many_attempts');",
+                  "  });",
+                  "  console.log('Brute-force protection verified:', pm.response.code, pm.response.text());",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

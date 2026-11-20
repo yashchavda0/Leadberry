@@ -3,6 +3,7 @@ import asyncio
 import itertools
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
@@ -897,6 +898,182 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
     assert client.get(f"/api/v1/leads?integration_id={uuid4()}").json()["data"] == []
 
 
+def test_adapter_registry_and_transient_backoff_contract():
+    from datetime import timedelta
+    from app.modules.marketplace import adapters
+    from app.modules.marketplace.schedule import backoff
+
+    assert set(adapters.REGISTRY) == {"indiamart", "tradeindia"}
+    assert backoff(1) == timedelta(minutes=5)
+    assert backoff(2) == backoff(1) * 2
+    assert backoff(3) == backoff(1) * 4
+    assert backoff(20) <= timedelta(hours=2)
+
+
+@pytest.mark.asyncio
+async def test_worker_dispatch_is_fair_and_bounded_per_organization(monkeypatch):
+    from app.modules.marketplace import worker
+
+    organizations = [uuid4(), uuid4(), uuid4()]
+    claimed = []
+    release = asyncio.Event()
+
+    async def claim(engine, organization):
+        claimed.append(organization)
+        return {"run_id": uuid4()}
+
+    async def run_safely(engine, organization, run, private, client):
+        await release.wait()
+
+    monkeypatch.setattr(worker, "claim", claim)
+    monkeypatch.setattr(worker, "run_safely", run_safely)
+    running = set()
+    try:
+        assert await worker.dispatch(
+            object(), organizations, object(), object(), running, 4, 2
+        )
+        assert claimed == [organizations[0], organizations[1], organizations[2], organizations[0]]
+        assert len(running) == 4
+    finally:
+        release.set()
+        await asyncio.gather(*running)
+
+
+def test_database_refetch_keeps_manual_work_and_records_assignment_history(
+    marketplace_owner,
+):
+    import httpx
+    from sqlalchemy import text
+    from app.core.database import create_database_engine, tenant_transaction
+
+    if not os.environ.get("TEST_WORKER_DATABASE_URL"):
+        pytest.skip("Requires provisioned crm_worker role")
+    client = marketplace_owner
+    account = add_account(client, "Refetch account", "refetch-fixture-key")
+    identity = client.get("/api/v1/auth/me").json()
+    org = UUID(identity["organization_id"])
+    member = identity["membership_id"]
+    payload = {
+        "CODE": 200,
+        "STATUS": "SUCCESS",
+        "TOTAL_RECORDS": 1,
+        "RESPONSE": [
+            {
+                "UNIQUE_QUERY_ID": "refetch-source-id",
+                "QUERY_TIME": "2026-11-06 10:30:00",
+                "SENDER_NAME": "Provider name",
+                "SENDER_MOBILE": "9876543210",
+            }
+        ],
+    }
+
+    def respond(request):
+        return httpx.Response(200, json=payload)
+
+    due = (
+        "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',"
+        "next_live_at=now()-interval '1 minute' WHERE org_id=:org"
+    )
+    assert (
+        client.post(
+            f"/api/v1/marketplace/accounts/{account['id']}/test",
+            json={"row_version": 1},
+        ).status_code
+        == 200
+    )
+    assert run_worker(client, org, respond, prepare=due)
+    account = client.get("/api/v1/marketplace/accounts").json()["data"][0]
+    activated = client.post(
+        f"/api/v1/marketplace/accounts/{account['id']}/activate",
+        json={"row_version": account["row_version"]},
+    )
+    assert activated.status_code == 200, activated.text
+    assert run_worker(client, org, respond, prepare=due)
+    lead = client.get("/api/v1/leads").json()["data"][0]
+    assert lead["fetch_count"] == 1
+
+    assigned = client.put(
+        f"/api/v1/leads/{lead['id']}",
+        json={
+            "name": lead["name"],
+            "assigned_membership_id": member,
+            "source_provider": "indiamart",
+            "row_version": lead["row_version"],
+        },
+    )
+    assert assigned.status_code == 200, assigned.text
+    assigned_lead = client.get("/api/v1/leads").json()["data"][0]
+    assert assigned_lead["assigned_membership_id"] == member
+
+    assert run_worker(client, org, respond, prepare=due)
+    leads = client.get("/api/v1/leads").json()["data"]
+    assert len(leads) == 1
+    assert leads[0]["id"] == lead["id"]
+    assert leads[0]["fetch_count"] == 2
+    assert leads[0]["assigned_membership_id"] == member
+
+    async def history():
+        engine = create_database_engine(
+            Settings(
+                database_url=os.environ["TEST_RUNTIME_DATABASE_URL"],
+                app_environment="test",
+            )
+        )
+        try:
+            async with tenant_transaction(engine, org, UUID(member)) as connection:
+                result = await connection.execute(
+                    text(
+                        "SELECT from_membership_id,to_membership_id,actor_membership_id "
+                        "FROM crm.lead_assignments WHERE org_id=:org AND lead_id=:lead"
+                    ),
+                    {"org": org, "lead": UUID(lead["id"])},
+                )
+                return result.all()
+        finally:
+            await engine.dispose()
+
+    rows = client.portal.call(history)
+    assert len(rows) == 1
+    assert rows[0].from_membership_id is None
+    assert str(rows[0].to_membership_id) == member
+    assert str(rows[0].actor_membership_id) == member
+
+
+def test_database_transient_provider_failure_is_reported_and_retried(
+    marketplace_owner,
+):
+    import httpx
+
+    if not os.environ.get("TEST_WORKER_DATABASE_URL"):
+        pytest.skip("Requires provisioned crm_worker role")
+    client = marketplace_owner
+    account = add_account(client, "Transient account", "transient-fixture-key")
+    identity = client.get("/api/v1/auth/me").json()
+    org = UUID(identity["organization_id"])
+    due = (
+        "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',"
+        "next_live_at=now()-interval '1 minute' WHERE org_id=:org"
+    )
+    assert (
+        client.post(
+            f"/api/v1/marketplace/accounts/{account['id']}/test",
+            json={"row_version": 1},
+        ).status_code
+        == 200
+    )
+    assert run_worker(
+        client,
+        org,
+        lambda request: httpx.Response(500, json={"error": "upstream"}),
+        prepare=due,
+    )
+    latest = client.get(f"/api/v1/marketplace/accounts/{account['id']}/runs").json()[
+        "data"
+    ][0]
+    assert latest["state"] == "failed"
+    assert latest["safe_error_code"] == "provider_unavailable"
+
+
 def test_indiamart_204_variants_and_documented_errors():
     from datetime import datetime, timezone
     from app.modules.marketplace.indiamart import HistoryNotReady, normalize_response
@@ -1385,6 +1562,28 @@ def test_database_lead_export_is_excel_scoped_and_formula_safe(marketplace_owner
         client.get("/api/v1/leads/export?start=2026-02-01&end=2026-01-01").status_code
         == 422
     )
+    report_export = client.get("/api/v1/reports/leads/export")
+    assert report_export.status_code == 200, report_export.text
+    report = load_workbook(BytesIO(report_export.content))
+    assert report.sheetnames == ["Follow-ups", "Leads by user", "By source"]
+
+
+def test_concurrent_lead_dashboard_report_and_export_requests(marketplace_owner):
+    client = marketplace_owner
+    paths = [
+        "/api/v1/leads?limit=10",
+        "/api/v1/leads?limit=10",
+        "/api/v1/leads?limit=10",
+        "/api/v1/dashboard",
+        "/api/v1/dashboard",
+        "/api/v1/reports/leads",
+        "/api/v1/reports/leads",
+        "/api/v1/leads/export",
+        "/api/v1/reports/leads/export",
+    ]
+    with ThreadPoolExecutor(max_workers=len(paths)) as executor:
+        responses = list(executor.map(client.get, paths))
+    assert [response.status_code for response in responses] == [200] * len(paths)
 
 
 def test_database_long_pause_moves_missed_range_to_history(marketplace_owner):

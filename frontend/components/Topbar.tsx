@@ -8,14 +8,15 @@ import { useSession } from "./Session";
 import { Badge } from "./ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
 
-const TITLES: Record<string, string> = { "/account": "My account" };
+const TITLES: Record<string, string> = { "/account": "My account", "/account/setup": "Profile setup" };
 
 export default function Topbar() {
   const { identity, organization, can, logout } = useSession();
   const pathname = usePathname();
   const title = TITLES[pathname] || NAV.find(link => (link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)))?.label || "Workspace";
   const today = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date());
-  const initials = (organization?.name || "?").split(/\s+/).map(word => word[0]).join("").slice(0, 2).toUpperCase();
+  const name = identity?.display_name || "Account";
+  const initials = name.trim().split(/\s+/).map(word => word[0]).join("").slice(0, 2).toUpperCase();
   return <header className="topbar topbar-v2">
     <div className="topbar-title"><h2>{title}</h2><span className="small muted">{today}</span></div>
     <div className="topbar-right">
@@ -23,7 +24,7 @@ export default function Topbar() {
         <DropdownMenuTrigger asChild>
           <button type="button" className="topbar-user" aria-label="Account menu">
             <span className="topbar-avatar" aria-hidden="true">{initials}</span>
-            <span className="topbar-user-text"><strong>{organization?.name}</strong><small>{organization?.slug}</small></span>
+            <span className="topbar-user-text"><strong>{name}</strong><small>{organization?.name}</small></span>
             <Badge variant={identity?.is_owner ? "default" : "outline"}>{identity?.is_owner ? "Owner" : "Member"}</Badge>
             <Icon name="chevron" size={14} />
           </button>

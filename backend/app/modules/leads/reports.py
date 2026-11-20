@@ -121,21 +121,47 @@ def sheet_rows(sheet, headers: list[str], rows: list[list]) -> None:
     sheet.freeze_panes = "A2"
 
 
-@router.get("/leads/export")
-async def export_report(request: Request, user: User, requested: Range):
-    async with access(request, user, "reports.export") as (connection, current):
-        report = await build_report(connection, current, requested)
-        await audit(connection, current.org_id, current.member_id, "reports.exported", current.org_id)
+def build_report_workbook(report: dict) -> bytes:
     workbook = Workbook()
     follow = workbook.active
     follow.title = "Follow-ups"
-    sheet_rows(follow, ["User", "Missed", "Completed", "Upcoming"], [[r["name"], r["missed"], r["completed"], r["upcoming"]] for r in report["follow_up"]])
+    sheet_rows(
+        follow,
+        ["User", "Missed", "Completed", "Upcoming"],
+        [[r["name"], r["missed"], r["completed"], r["upcoming"]] for r in report["follow_up"]],
+    )
     leads = workbook.create_sheet("Leads by user")
     statuses = report["statuses"]
-    sheet_rows(leads, ["User", "Total", "Open"] + [s["name"] for s in statuses], [[r["name"], r["total"], r["open"]] + [r["counts"].get(str(s["id"]), 0) for s in statuses] for r in report["by_user"]])
+    sheet_rows(
+        leads,
+        ["User", "Total", "Open"] + [s["name"] for s in statuses],
+        [[r["name"], r["total"], r["open"]] + [r["counts"].get(str(s["id"]), 0) for s in statuses] for r in report["by_user"]],
+    )
     sources = workbook.create_sheet("By source")
-    sheet_rows(sources, ["Source", "Total", "Open"] + [s["name"] for s in statuses], [[r["name"], r["total"], r["open"]] + [r["counts"].get(str(s["id"]), 0) for s in statuses] for r in report["by_source"]])
+    sheet_rows(
+        sources,
+        ["Source", "Total", "Open"] + [s["name"] for s in statuses],
+        [[r["name"], r["total"], r["open"]] + [r["counts"].get(str(s["id"]), 0) for s in statuses] for r in report["by_source"]],
+    )
     buffer = BytesIO()
-    await asyncio.to_thread(workbook.save, buffer)
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+@router.get("/leads/export")
+async def export_report(request: Request, user: User, requested: Range):
+    resources = request.app.state.process_resources
+    await resources.acquire_export()
+    try:
+        return await _build_report_export(request, user, requested, resources)
+    finally:
+        resources.release_export()
+
+
+async def _build_report_export(request, user, requested, resources):
+    async with access(request, user, "reports.export") as (connection, current):
+        report = await build_report(connection, current, requested)
+        await audit(connection, current.org_id, current.member_id, "reports.exported", current.org_id)
+    content = await resources.run_export(build_report_workbook, report)
     name = f"lead-report-{report['start']}-to-{report['end']}.xlsx"
-    return Response(buffer.getvalue(), media_type=XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
+    return Response(content, media_type=XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})

@@ -35,6 +35,13 @@
 			"problemMatcher": [
 				"$tsc"
 			]
+		},
+		{
+			"label": "Verify Lead Export",
+			"type": "shell",
+			"command": "$env:PYTEST_ADDOPTS = '-k export'; & '.\\backend\\.venv\\Scripts\\python.exe' scripts/Run-PostgresTests.py",
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }

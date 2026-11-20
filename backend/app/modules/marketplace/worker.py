@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -20,7 +21,7 @@ from ...core.database import (
 )
 from ...core.settings import Settings
 from ..identity.service import AccessError, audit, effective_access
-from . import indiamart, tradeindia
+from . import adapters, indiamart
 from .catalog import provider
 from .crypto import decrypt_credentials
 from .schedule import (
@@ -42,8 +43,28 @@ logger = logging.getLogger(__name__)
 LEASE_SECONDS = 600
 FETCH_TIMEOUT_SECONDS = 300
 MAX_CONCURRENT_RUNS = 8
-ADAPTER_CODES = ("indiamart", "tradeindia")
-ADAPTERS = "('indiamart','tradeindia')"
+ADAPTER_CODES = tuple(adapters.REGISTRY)
+ADAPTERS = "(" + ",".join(f"'{code}'" for code in ADAPTER_CODES) + ")"
+LEAD_SOURCE_FIELDS = ("name", "company", "phone", "email", "city", "state", "address", "product", "enquiry")
+# A refetch fills blank source fields only, so manual edits survive and the assignee, status and receive time never move.
+LEAD_UPSERT = (
+    "INSERT INTO crm.leads AS existing(org_id,integration_id,source_record_id,source_provider,created_by,status_id,"
+    "assigned_membership_id,name,company,phone,email,city,state,address,product,enquiry,custom_fields,received_at,backfill_id,"
+    "campaign_id,ad_id,form_id,description,payload_hash,first_fetched_at,last_fetched_at,fetch_count) "
+    "VALUES(:org,:account,:source_record_id,:source,:member,:status,:assignee,:name,:company,:phone,:email,"
+    ":city,:state,:address,:product,:enquiry,CAST(:custom AS jsonb),COALESCE(CAST(:received AS timestamptz),now()),:backfill,"
+    ":campaign_id,:ad_id,:form_id,:description,:payload_hash,now(),now(),1) "
+    "ON CONFLICT(org_id,integration_id,source_record_id) WHERE integration_id IS NOT NULL DO UPDATE SET "
+    + ",".join(
+        f"{field}=COALESCE(NULLIF(existing.{field},''),EXCLUDED.{field})"
+        for field in LEAD_SOURCE_FIELDS
+    )
+    + ",campaign_id=COALESCE(existing.campaign_id,EXCLUDED.campaign_id),"
+    "ad_id=COALESCE(existing.ad_id,EXCLUDED.ad_id),form_id=COALESCE(existing.form_id,EXCLUDED.form_id),"
+    "description=COALESCE(NULLIF(existing.description,''),EXCLUDED.description),"
+    "payload_hash=EXCLUDED.payload_hash,last_fetched_at=now(),fetch_count=existing.fetch_count+1 "
+    "RETURNING id,(xmax=0) AS created"
+)
 # An import may only take a slot when the next live sync is at least this far away.
 IMPORT_LEAD_SECONDS = (
     max(slot_seconds(code) for code in ADAPTER_CODES) - LIVE_SLIP_SECONDS
@@ -548,6 +569,9 @@ async def finish(
                         for key, value in lead.items()
                         if key != "source_time"
                     }
+                    content = {
+                        key: value for key, value in lead.items() if key != "source_time"
+                    }
                     values.update(
                         org=org,
                         account=run["id"],
@@ -559,21 +583,21 @@ async def finish(
                         # Imported history keeps the enquiry time so old leads don't surface as new today.
                         received=lead["source_time"] if imported else None,
                         backfill=run["backfill_id"] if imported else None,
+                        campaign_id=lead.get("campaign_id"),
+                        ad_id=lead.get("ad_id"),
+                        form_id=lead.get("form_id"),
+                        description=lead.get("description", ""),
+                        payload_hash=hashlib.sha256(
+                            json.dumps(content, sort_keys=True, default=str).encode()
+                        ).hexdigest(),
                     )
-                    created = await connection.scalar(
-                        text(
-                            "INSERT INTO crm.leads(org_id,integration_id,source_record_id,source_provider,created_by,status_id,"
-                            "assigned_membership_id,name,company,phone,email,city,state,address,product,enquiry,custom_fields,received_at,backfill_id) "
-                            "VALUES(:org,:account,:source_record_id,:source,:member,:status,:assignee,:name,:company,:phone,:email,"
-                            ":city,:state,:address,:product,:enquiry,CAST(:custom AS jsonb),COALESCE(CAST(:received AS timestamptz),now()),:backfill) "
-                            "ON CONFLICT(org_id,integration_id,source_record_id) WHERE integration_id IS NOT NULL DO NOTHING RETURNING id"
-                        ),
-                        values,
-                    )
-                    if created:
+                    row = (
+                        await connection.execute(text(LEAD_UPSERT), values)
+                    ).one()
+                    if row.created:
                         accepted += 1
                         await audit(
-                            connection, org, None, "marketplace.lead_received", created
+                            connection, org, None, "marketplace.lead_received", row.id
                         )
         parameters = {
             "org": org,
@@ -700,22 +724,27 @@ async def _account_after_live(
     connection, run: dict, error: str | None, parameters: dict
 ) -> None:
     if error in TRANSIENT_ERRORS:
-        parameters["cooldown"] = (
-            cooldown(run["provider_code"]) if error == "provider_rate_limited" else 0
-        )
+        failures = run["consecutive_failures"] + 1
+        delay = backoff(failures)
+        if error == "provider_rate_limited":
+            delay = max(delay, timedelta(seconds=cooldown(run["provider_code"])))
+        parameters["cooldown"] = int(delay.total_seconds())
+        parameters["failures"] = failures
         parameters["hold"] = RETRY_REASONS[error]
-        # The live sync retries as soon as the key is usable again instead of waiting a full interval.
+        # Repeated transient failures back off exponentially; the live sync resumes once the delay passes.
         await connection.execute(
             text(
-                "UPDATE crm.marketplace_accounts SET safe_error_code=:error,row_version=row_version+1,updated_at=now(),"
+                "UPDATE crm.marketplace_accounts SET safe_error_code=:error,consecutive_failures=:failures,"
+                "row_version=row_version+1,updated_at=now(),"
                 "next_allowed_at=GREATEST(next_allowed_at,now()+make_interval(secs=>:cooldown)),hold_reason=:hold,"
                 "hold_until=GREATEST(next_allowed_at,now()+make_interval(secs=>:cooldown)),"
-                "next_live_at=LEAST(next_live_at,GREATEST(next_allowed_at,now()+make_interval(secs=>:cooldown))) "
+                "next_live_at=GREATEST(next_allowed_at,now()+make_interval(secs=>:cooldown)) "
                 "WHERE org_id=:org AND id=:id"
             ),
             parameters,
         )
-        if parameters["cooldown"]:
+        # Only a provider rate limit cools the shared credential bucket; other failures stay per account.
+        if error == "provider_rate_limited":
             await _cool_key(connection, run, parameters["cooldown"])
     elif error:
         await connection.execute(
@@ -735,7 +764,7 @@ async def _account_after_live(
         )
         await connection.execute(
             text(
-                "UPDATE crm.marketplace_accounts SET safe_error_code=NULL,last_success_at=now(),hold_reason=NULL,hold_until=NULL,"
+                "UPDATE crm.marketplace_accounts SET safe_error_code=NULL,last_success_at=now(),hold_reason=NULL,hold_until=NULL,consecutive_failures=0,"
                 "status=CASE WHEN status='error' THEN 'draft' ELSE status END,"
                 "verified_version=credential_version,row_version=row_version+1,updated_at=now()"
                 + live
@@ -782,23 +811,21 @@ async def execute(
             str(run["id"]),
             run["credential_version"],
         )
-        if run["provider_code"] == "tradeindia":
-            config = (
-                run["config"]
-                if isinstance(run["config"], dict)
-                else json.loads(run["config"])
-            )
-            fetch = (
-                tradeindia.fetch_pages(
-                    client, config, credentials["api_key"], start, end, run["next_page"]
-                )
-                if run["kind"] == "backfill"
-                else tradeindia.fetch_leads(
-                    client, config, credentials["api_key"], start, end
-                )
-            )
-        else:
-            fetch = indiamart.fetch_leads(client, credentials["crm_key"], start, end)
+        config = (
+            run["config"]
+            if isinstance(run["config"], dict)
+            else json.loads(run["config"])
+        )
+        fetch = adapters.fetch(
+            run["provider_code"],
+            client,
+            config,
+            credentials,
+            start,
+            end,
+            run["kind"],
+            run.get("next_page") or 1,
+        )
         try:
             async with asyncio.timeout(FETCH_TIMEOUT_SECONDS):
                 leads = await fetch
@@ -861,21 +888,35 @@ async def dispatch(
     private: rsa.RSAPrivateKey,
     client: httpx.AsyncClient,
     running: set[asyncio.Task],
+    max_concurrent: int = MAX_CONCURRENT_RUNS,
+    max_per_org: int = 2,
 ) -> bool:
     started = False
-    for org in targets:
-        while len(running) < MAX_CONCURRENT_RUNS:
+    while len(running) < max_concurrent:
+        progressed = False
+        for org in targets:
+            if len(running) >= max_concurrent:
+                break
+            active_for_org = sum(
+                1 for task in running if getattr(task, "crm_org_id", None) == org
+            )
+            if active_for_org >= max_per_org:
+                continue
             try:
                 run = await claim(engine, org)
             except Exception:
                 logger.exception("marketplace_claim_failed org=%s", org)
-                break
+                continue
             if run is None:
-                break
+                continue
             task = asyncio.create_task(run_safely(engine, org, run, private, client))
+            task.crm_org_id = org
             running.add(task)
             task.add_done_callback(running.discard)
             started = True
+            progressed = True
+        if not progressed:
+            break
     return started
 
 
@@ -929,7 +970,15 @@ async def main(arguments) -> None:
                         if arguments.organization
                         else await organizations(engine)
                     )
-                    started = await dispatch(engine, targets, private, client, running)
+                    started = await dispatch(
+                        engine,
+                        targets,
+                        private,
+                        client,
+                        running,
+                        settings.marketplace_worker_concurrency,
+                        settings.marketplace_org_concurrency,
+                    )
                 except Exception:
                     logger.exception("marketplace_worker_cycle_failed")
                 if arguments.once:

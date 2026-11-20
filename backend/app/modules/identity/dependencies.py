@@ -2,6 +2,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request, Response
 
+from ...core.rate_limit import RequestRateLimiter
 from .security import CSRF_COOKIE, SESSION_COOKIE
 from .service import AccessError, IdentityService, Principal
 
@@ -48,8 +49,12 @@ def set_session(request: Request, response: Response, tokens: tuple[str, str]) -
 async def public_throttle(request: Request, operation: str, account: str | None = None) -> IdentityService:
     validate_origin(request)
     service = identity(request)
-    ip = request.client.host if request.client else "unknown"
-    await service.throttle(f"{operation}:ip:{ip}", 5 if operation == "onboard" else 30)
+    client_key = RequestRateLimiter.client_key(
+        request, request.app.state.trusted_proxy_networks
+    )
+    await service.throttle(
+        f"{operation}:ip:{client_key}", 5 if operation == "onboard" else 30
+    )
     if account:
         await service.throttle(f"{operation}:account:{account}", 10)
     return service

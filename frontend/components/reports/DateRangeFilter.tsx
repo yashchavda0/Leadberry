@@ -16,16 +16,15 @@ const PRESETS: { label: string; range: () => DateRange }[] = [
   { label: "This month", range: () => { const now = new Date(); return { start: iso(new Date(now.getFullYear(), now.getMonth(), 1)), end: iso(now) }; } },
 ];
 
-export default function DateRangeFilter({ value, onChange }: { value: DateRange | null; onChange: (range: DateRange) => void }) {
-  const pickerRange = value ?? lastDays(30);
+export default function DateRangeFilter({ value, onChange }: { value: DateRange; onChange: (range: DateRange) => void }) {
   return <div className="date-range-filter">
     <div className="date-range-presets" role="group" aria-label="Quick ranges">
-      {PRESETS.map(preset => { const range = preset.range(); const active = Boolean(value && range.start === value.start && range.end === value.end); return <Button key={preset.label} size="sm" variant={active ? "default" : "outline"} onClick={() => onChange(range)}>{preset.label}</Button>; })}
+      {PRESETS.map(preset => { const range = preset.range(); const active = range.start === value.start && range.end === value.end; return <Button key={preset.label} size="sm" variant={active ? "default" : "outline"} onClick={() => onChange(range)}>{preset.label}</Button>; })}
     </div>
     <div className="date-range-pickers">
-      <DatePicker ariaLabel="From date" value={pickerRange.start} max={pickerRange.end} onChange={start => start && onChange({ ...pickerRange, start })} />
+      <DatePicker ariaLabel="From date" value={value.start} max={value.end} onChange={start => start && onChange({ ...value, start })} />
       <span className="small muted">to</span>
-      <DatePicker ariaLabel="To date" value={pickerRange.end} min={pickerRange.start} onChange={end => end && onChange({ ...pickerRange, end })} />
+      <DatePicker ariaLabel="To date" value={value.end} min={value.start} onChange={end => end && onChange({ ...value, end })} />
     </div>
   </div>;
 }

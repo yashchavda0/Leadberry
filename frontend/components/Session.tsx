@@ -3,7 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ApiError, crm, errorMessage, type Identity, type Organization } from "@/lib/crm";
+import { ApiError, crm, errorMessage, isServiceError, type Identity, type Organization } from "@/lib/crm";
+import ServiceUnavailable from "./ServiceUnavailable";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 
@@ -25,11 +26,13 @@ export default function SessionProvider({ children }: { children: React.ReactNod
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
+  const [outage, setOutage] = useState<{ offline: boolean } | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const isPublic = publicPaths.includes(pathname);
   const reload = useCallback(async () => {
-    setError("");
+    setError(""); setOutage(null);
     try {
       const current = await crm<Identity>("/auth/me");
       const org = await crm<Organization>("/organizations/me");
@@ -38,6 +41,7 @@ export default function SessionProvider({ children }: { children: React.ReactNod
     } catch (error) {
       setIdentity(null); setOrganization(null);
       if (!(error instanceof ApiError && error.status === 401)) setError(errorMessage(error));
+      if (isServiceError(error)) setOutage({ offline: (error as ApiError).status === 0 });
       return null;
     } finally { setPending(false); }
   }, []);
@@ -47,6 +51,7 @@ export default function SessionProvider({ children }: { children: React.ReactNod
     window.addEventListener("crm-session-expired", expire);
     return () => window.removeEventListener("crm-session-expired", expire);
   }, []);
+  async function retry() { setRetrying(true); await reload(); setRetrying(false); }
   useEffect(() => {
     if (!isPublic && !pending && !identity && !error) router.replace("/login");
   }, [isPublic, pending, identity, error, router]);
@@ -62,7 +67,7 @@ export default function SessionProvider({ children }: { children: React.ReactNod
   const value: Session = { identity, organization, pending, error, reload, can: permission => Boolean(identity?.permissions.includes(permission)), logout };
   return <Context.Provider value={value}>
     {isPublic ? children : pending ? <div className="loading-screen" role="status">Loading your workspace...</div> :
-      error ? <div className="auth-container"><div className="card"><h1>Workspace unavailable</h1><p role="alert">{error}</p><button className="btn" onClick={() => void reload()}>Retry</button> <Link href="/login">Sign in</Link></div></div> :
+      error ? (outage ? <ServiceUnavailable message={error} offline={outage.offline} retrying={retrying} onRetry={() => void retry()} /> : <div className="auth-container"><div className="card"><h1>Workspace unavailable</h1><p role="alert">{error}</p><button className="btn" onClick={() => void reload()}>Retry</button> <Link href="/login">Sign in</Link></div></div>) :
         identity ? <div className="layout"><Sidebar /><div className="workspace"><Topbar /><main className="main">{children}</main></div></div> :
           <div className="loading-screen">Redirecting to sign in...</div>}
   </Context.Provider>;

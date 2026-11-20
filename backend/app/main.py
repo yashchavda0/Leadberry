@@ -1,14 +1,19 @@
 import asyncio
+import ipaddress
 import logging
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from .core.database import check_database_readiness, create_database_engine
+from .core.database import check_database_readiness
+from .core.rate_limit import RequestBodyLimitMiddleware, RequestRateLimiter
+from .core.resources import ProcessResources
 from .core.settings import Settings
 from .modules.identity.routes import router as identity_router
 from .modules.identity.service import AccessError, IdentityService
@@ -29,31 +34,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     configuration = settings if settings is not None else Settings()
 
+    trusted_proxies = tuple(
+        ipaddress.ip_network(value) for value in configuration.trusted_proxy_networks
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-        engine = create_database_engine(configuration)
-        app.state.database_engine = engine
-        auth_engine = None
-        app.state.identity_engine = None
-        if configuration.auth_database_url is not None:
-            auth_settings = configuration.model_copy(
-                update={
-                    "database_url": configuration.auth_database_url,
-                    "auth_database_url": None,
-                    "db_pool_size": 2,
-                }
-            )
-            auth_engine = create_database_engine(auth_settings)
-            app.state.identity_engine = auth_engine
+        resources = ProcessResources(configuration)
+        app.state.process_resources = resources
+        app.state.request_limiter = RequestRateLimiter(
+            resources.redis,
+            request_limit=configuration.api_requests_per_minute,
+            window_seconds=60,
+            max_keys=configuration.api_rate_limit_buckets,
+            max_inflight=configuration.api_max_inflight_requests,
+        )
+        app.state.database_engine = resources.database_engine
+        app.state.identity_engine = resources.identity_engine
+        app.state.http_client = resources.http_client
+        app.state.redis = resources.redis
+        if resources.identity_engine is not None:
             app.state.identity_service = IdentityService(
-                auth_engine, configuration.session_hours
+                resources.identity_engine, configuration.session_hours
             )
+        await resources.start()
         try:
             yield
         finally:
-            await engine.dispose()
-            if auth_engine is not None:
-                await auth_engine.dispose()
+            await resources.close()
 
     app = FastAPI(
         title="Lead-centric CRM API",
@@ -70,6 +78,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ),
     )
     app.state.configuration = configuration
+    app.state.trusted_proxy_networks = trusted_proxies
+    app.state.request_limiter = RequestRateLimiter(
+        None,
+        request_limit=configuration.api_requests_per_minute,
+        window_seconds=60,
+        max_keys=configuration.api_rate_limit_buckets,
+        max_inflight=configuration.api_max_inflight_requests,
+    )
+    app.add_middleware(
+        RequestBodyLimitMiddleware, max_bytes=configuration.api_max_request_bytes
+    )
     app.include_router(identity_router)
     # Before the leads router, whose /leads/{lead_id} would otherwise capture /leads/export.
     app.include_router(lead_export_router)
@@ -82,13 +101,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def private_responses(request: Request, call_next):
-        response = await call_next(request)
+        supplied_request_id = request.headers.get("X-Request-ID")
+        try:
+            request_id = str(UUID(supplied_request_id)) if supplied_request_id else str(uuid4())
+        except ValueError:
+            request_id = str(uuid4())
+        request.state.request_id = request_id
+        started = time.monotonic()
+        acquired = False
+        try:
+            content_length = request.headers.get("content-length")
+            if content_length and content_length.isdigit():
+                if int(content_length) > configuration.api_max_request_bytes:
+                    return JSONResponse(
+                        {"status": 413, "code": "request_too_large"},
+                        status_code=413,
+                        headers={"X-Request-ID": request_id},
+                    )
+            limiter = request.app.state.request_limiter
+            if not await limiter.allow(request, trusted_proxies):
+                logger.warning(
+                    "api_rate_limit_rejected request_id=%s path=%s",
+                    request_id,
+                    request.url.path,
+                )
+                return JSONResponse(
+                    {"status": 429, "code": "rate_limit_exceeded"},
+                    status_code=429,
+                    headers={
+                        "Retry-After": "60",
+                        "X-RateLimit-Limit": str(configuration.api_requests_per_minute),
+                        "X-Request-ID": request_id,
+                    },
+                )
+            try:
+                await asyncio.wait_for(limiter.semaphore.acquire(), timeout=0.05)
+                acquired = True
+            except TimeoutError:
+                logger.warning(
+                    "api_capacity_rejected request_id=%s path=%s",
+                    request_id,
+                    request.url.path,
+                )
+                return JSONResponse(
+                    {"status": 503, "code": "service_busy"},
+                    status_code=503,
+                    headers={"Retry-After": "1", "X-Request-ID": request_id},
+                )
+            response = await call_next(request)
+            response.headers["X-RateLimit-Limit"] = str(
+                configuration.api_requests_per_minute
+            )
+        finally:
+            if acquired:
+                request.app.state.request_limiter.semaphore.release()
+            logger.info(
+                "request_finished method=%s path=%s request_id=%s elapsed_ms=%.2f",
+                request.method,
+                request.url.path,
+                request_id,
+                (time.monotonic() - started) * 1000,
+            )
         response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Request-ID"] = request_id
         return response
 
     @app.exception_handler(AccessError)
     async def access_error(request: Request, error: AccessError):
-        logger.warning("access_rejected code=%s", error.code)
+        logger.warning(
+            "access_rejected code=%s request_id=%s",
+            error.code,
+            request.state.request_id,
+        )
         return JSONResponse(
             {"type": "about:blank", "status": error.status, "code": error.code},
             status_code=error.status,
@@ -99,7 +183,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def validation_error(request: Request, error: RequestValidationError):
         # FastAPI's default input echo could expose submitted passwords/tokens.
         logger.warning(
-            "request_validation_rejected %s",
+            "request_validation_rejected request_id=%s details=%s",
+            request.state.request_id,
             [(item["loc"], item["type"]) for item in error.errors()],
         )
         return JSONResponse(
@@ -123,11 +208,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "23503",
             "23514",
         ):
-            logger.warning("database_constraint_rejected sqlstate=%s", sqlstate)
+            logger.warning(
+                "database_constraint_rejected sqlstate=%s request_id=%s",
+                sqlstate,
+                request.state.request_id,
+            )
             return JSONResponse(
                 {"status": 409, "code": "conflicting_state"}, status_code=409
             )
-        logger.error("database_operation_unavailable sqlstate=%s", sqlstate)
+        logger.error(
+            "database_operation_unavailable sqlstate=%s request_id=%s",
+            sqlstate,
+            request.state.request_id,
+        )
         return JSONResponse(
             {"status": 503, "code": "database_unavailable"}, status_code=503
         )

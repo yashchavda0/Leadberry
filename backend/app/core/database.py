@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_en
 
 from .settings import Settings
 
-SCHEMA_REVISION = "0015_repeat_customers"
+SCHEMA_REVISION = "0017_member_profile"
 
 
 def create_database_engine(settings: Settings) -> AsyncEngine:
@@ -16,6 +16,7 @@ def create_database_engine(settings: Settings) -> AsyncEngine:
         pool_size=settings.db_pool_size,
         max_overflow=0,
         pool_timeout=settings.db_pool_timeout_seconds,
+        pool_recycle=settings.db_pool_recycle_seconds,
         pool_pre_ping=True,
         hide_parameters=True,
         echo=False,

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Icon from "@/components/Icon";
+import ProfileForm from "@/components/ProfileForm";
 import { useNotify } from "@/components/Notifications";
 import SearchInput from "@/components/SearchInput";
 import { useSession } from "@/components/Session";
@@ -56,6 +57,8 @@ export default function AccountPage() {
       </div>
       <Button variant="outline" disabled={busy} onClick={() => void action(false)}><Icon name="close" />Sign out</Button>
     </Card>
+
+    <ProfileForm />
 
     <div className="account-tiles">
       <div className="account-tile"><span className="org-tile-icon"><Icon name="check" size={18} /></span><span><small>Access type</small><strong>{identity?.is_owner ? "Full access (Owner)" : "Organization member"}</strong></span></div>

@@ -1,10 +1,11 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, Response
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 from ...core.database import tenant_transaction
-from .access import invite_member, update_membership
+from .access import invite_member, recover_invitation, update_membership
 from .dependencies import User, identity
 from .schemas import InviteInput, MembershipUpdate
 from .service import AccessError
@@ -69,9 +70,29 @@ async def replace_membership(
     return {"id": membership_id, "status": "updated"}
 
 
+def invitation_key(request: Request) -> bytes:
+    settings = request.app.state.configuration
+    if settings.invitation_token_key is not None:
+        return settings.invitation_token_key.get_secret_value().encode("utf-8")
+    database = settings.auth_database_url or settings.database_url
+    password = make_url(database.get_secret_value()).password if database else None
+    if not password:
+        raise AccessError(503, "invitation_key_not_configured")
+    return password.encode("utf-8")
+
+
 @router.post("/invitations", status_code=201)
-async def invite(body: InviteInput, request: Request, user: User):
-    return await invite_member(identity(request), user, body)
+async def invite(body: InviteInput, request: Request, response: Response, user: User):
+    response.headers["Cache-Control"] = "no-store"
+    return await invite_member(identity(request), user, body, invitation_key(request))
+
+
+@router.get("/memberships/{membership_id}/invitation")
+async def read_invitation(membership_id: UUID, request: Request, response: Response, user: User):
+    if not user.is_owner:
+        raise AccessError(403, "permission_denied")
+    response.headers["Cache-Control"] = "no-store"
+    return await recover_invitation(identity(request), user, membership_id, invitation_key(request))
 
 
 @router.delete("/memberships/{membership_id}")

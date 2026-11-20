@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from ...core.database import tenant_transaction
 from .schemas import AcceptInvite, InviteInput, MembershipUpdate, RoleInput
-from .security import digest, opaque_token, parse_token
+from .security import digest, invitation_token, parse_token
 from .service import (
     AccessError, IdentityService, Principal, audit, authorize_mutation,
     validate_permissions, validate_roles,
@@ -189,7 +189,7 @@ async def update_membership(
         await audit(connection, principal.org_id, principal.member_id, "membership.updated", member)
 
 
-async def invite_member(service: IdentityService, principal: Principal, body: InviteInput) -> dict:
+async def invite_member(service: IdentityService, principal: Principal, body: InviteInput, key: bytes) -> dict:
     # Global identity writes stay in the restricted identity pool, never the business pool.
     async with tenant_transaction(service.engine, principal.org_id) as connection:
         principal = await authorize_mutation(connection, principal, "users.manage")
@@ -240,7 +240,7 @@ async def invite_member(service: IdentityService, principal: Principal, body: In
                 {"org": principal.org_id, "member": member_id, "role": role},
             )
         invite_id = uuid4()
-        token = opaque_token(principal.org_id, invite_id)
+        token = invitation_token(principal.org_id, invite_id, key)
         await connection.execute(
             text("INSERT INTO crm.organization_invitations(org_id,id,membership_id,invited_by,token_hash,expires_at) "
                  "VALUES(:org,:id,:member,:actor,:hash,now()+interval '48 hours')"),
@@ -249,6 +249,24 @@ async def invite_member(service: IdentityService, principal: Principal, body: In
         await bump_access(connection, principal.org_id)
         await audit(connection, principal.org_id, principal.member_id, "membership.invited", member_id)
         return {"membership_id": member_id, "invitation_token": token, "expires_in_hours": 48}
+
+
+async def recover_invitation(service: IdentityService, principal: Principal, member_id: UUID, key: bytes) -> dict:
+    if not principal.is_owner:
+        raise AccessError(403, "permission_denied")
+    async with tenant_transaction(service.engine, principal.org_id) as connection:
+        invite = (await connection.execute(
+            text("SELECT i.id,i.token_hash,i.expires_at FROM crm.organization_invitations i "
+                 "JOIN crm.organization_memberships m ON m.org_id=i.org_id AND m.id=i.membership_id "
+                 "WHERE i.org_id=:org AND i.membership_id=:member AND i.consumed_at IS NULL "
+                 "AND i.expires_at>now() AND m.status='invited' ORDER BY i.expires_at DESC LIMIT 1"),
+            {"org": principal.org_id, "member": member_id},
+        )).mappings().first()
+    if invite is not None:
+        token = invitation_token(principal.org_id, invite["id"], key)
+        if digest(token) == invite["token_hash"]:
+            return {"invitation_token": token, "expires_at": invite["expires_at"]}
+    raise AccessError(404, "invitation_not_available")
 
 
 async def accept_invite(service: IdentityService, body: AcceptInvite) -> tuple[str, str]:

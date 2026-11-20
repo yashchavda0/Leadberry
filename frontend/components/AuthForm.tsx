@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { crm, errorMessage, homeFor } from "@/lib/crm";
+import { crm, errorMessage, homeFor, isServiceError } from "@/lib/crm";
 import { useSession } from "./Session";
 import Icon from "./Icon";
 import OrganizationProfileStep from "./OrganizationProfileStep";
@@ -26,9 +26,9 @@ export default function AuthForm({ mode }: { mode: "login" | "onboard" | "invite
       await crm(path, { method: "POST", body: JSON.stringify(values) });
       const identity = await session.reload();
       if (identity && mode === "onboard") { notify.success("Your workspace is ready.", { title: "Workspace created" }); setProfileStep({ name: String(values.organization_name), timezone: String(values.timezone), home: homeFor(identity) }); }
-      else if (identity) { notify.success(mode === "login" ? "You are signed in." : "You have joined the organization.", { title: mode === "login" ? "Welcome back" : "Invitation accepted" }); router.replace(homeFor(identity)); }
+      else if (identity) { notify.success(mode === "login" ? "You are signed in." : "You have joined the organization.", { title: mode === "login" ? "Welcome back" : "Invitation accepted" }); router.replace(mode === "invite" ? "/account/setup" : homeFor(identity)); }
       else notify.warning("Sign-in succeeded but the workspace could not load. Retry sign-in or contact your administrator.", { title: "Workspace unavailable" });
-    } catch (error) { notify.error(errorMessage(error), { title: mode === "login" ? "Sign-in failed" : mode === "onboard" ? "Workspace could not be created" : "Invitation could not be accepted" }); }
+    } catch (error) { notify.error(errorMessage(error), { title: isServiceError(error) ? "Service unavailable" : mode === "login" ? "Sign-in failed" : mode === "onboard" ? "Workspace could not be created" : "Invitation could not be accepted", duration: isServiceError(error) ? 10000 : undefined }); }
     finally { setBusy(false); }
   }
   return <div className="auth-container"><aside className="auth-story"><Link href="/login" className="auth-brand">LeadBerry</Link><h1>Every lead.<br />One workspace.</h1><p>Keep conversations organized, give your team the right access, and see your pipeline clearly.</p><div className="auth-points"><p>Organization-isolated lead data</p><p>Owner-controlled roles and permissions</p><p>One secure place for your team</p></div><span className="small">Application code runs locally. PostgreSQL powers your workspace.</span></aside><div className="auth-panel">{profileStep ? <OrganizationProfileStep name={profileStep.name} timezone={profileStep.timezone} onDone={async () => { await session.reload(); router.replace(profileStep.home); }} /> : <form className="card auth-form" onSubmit={submit}><span className="eyebrow">YOUR CRM WORKSPACE</span><h1>{title}</h1><p className="muted">{mode === "invite" ? "Paste the private invitation provided by your administrator." : "Use your organization's unique workspace slug."}</p>

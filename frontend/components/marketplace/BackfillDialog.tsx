@@ -37,7 +37,7 @@ export default function BackfillDialog({ account, provider, onClose, onStarted }
     event.preventDefault(); setBusy(true);
     try {
       const updated = await crm<MarketplaceAccount>(`/marketplace/accounts/${account.id}/backfills`, { method: "POST", body: JSON.stringify({ from_date: from, to_date: to }) });
-      notify.info(`Importing past leads for ${account.name} is queued.`, { title: "History import queued" });
+      notify.info(`Importing past leads for ${account.name} is queued for the connector worker.`, { title: "History import queued" });
       onStarted(updated);
     } catch (problem) { notify.error(errorMessage(problem), { title: "Import could not start" }); setBusy(false); }
   }

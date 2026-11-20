@@ -2,6 +2,45 @@ import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { homeFor, type Identity } from "../lib/crm";
 
+test("invited member can skip optional profile details and edit their signed-in name", async ({ page }) => {
+  let signedIn = false;
+  let profile = { display_name: "Invited Agent", email: "agent@example.com", phone: null as string | null, job_title: null as string | null };
+  await page.route("**/api/v1/**", async route => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1", "");
+    if (path === "/auth/accept-invite") {
+      signedIn = true;
+      return route.fulfill({ json: { status: "authenticated" } });
+    }
+    if (!signedIn) return route.fulfill({ status: 401, json: { code: "authentication_required" } });
+    if (path === "/auth/me") return route.fulfill({ json: { organization_id: "org", membership_id: "member", user_id: "user", display_name: profile.display_name, is_owner: false, permissions: [], data_scope: "own", landing_page: "/account" } });
+    if (path === "/organizations/me") return route.fulfill({ json: { id: "org", slug: "qa", name: "QA Workspace", timezone: "Asia/Kolkata", status: "active" } });
+    if (path === "/auth/profile" && request.method() === "PUT") {
+      profile = { ...profile, ...request.postDataJSON() };
+      return route.fulfill({ status: 204 });
+    }
+    if (path === "/auth/profile") return route.fulfill({ json: profile });
+    return route.fulfill({ json: { data: [] } });
+  });
+
+  await page.goto("/accept-invite");
+  await page.getByLabel("Invitation token").fill("a".repeat(117));
+  await page.getByLabel("Your password").fill("test-password-123");
+  await page.getByRole("button", { name: "Accept invitation" }).click();
+  await expect(page).toHaveURL(/\/account\/setup$/);
+  const accountMenu = page.getByRole("button", { name: "Account menu" });
+  await expect(accountMenu).toContainText("Invited Agent");
+  await expect(page.getByLabel("Display name")).toHaveValue("Invited Agent");
+  await page.getByRole("button", { name: "Skip optional details" }).click();
+  await expect(page).toHaveURL(/\/account$/);
+  await page.getByLabel("Display name").fill("Updated Agent");
+  await page.getByLabel("Job title (optional)").fill("Sales specialist");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(accountMenu).toContainText("Updated Agent");
+  await page.reload();
+  await expect(page.getByLabel("Job title (optional)")).toHaveValue("Sales specialist");
+});
+
 test("lead table sorts across pages and changes page size", async ({ page }) => {
   const now = new Date().toISOString();
   const leads = Array.from({ length: 65 }, (_, index) => ({

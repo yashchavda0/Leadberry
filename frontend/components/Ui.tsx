@@ -1,11 +1,22 @@
 "use client";
 
 import Icon from "@/components/Icon";
+import { Button } from "@/components/ui/button";
 import { Tip } from "@/components/ui/tip";
+import { isServiceMessage } from "@/lib/crm";
 
-export function ErrorNotice({ error }: { error: string }) {
-  return error ? <div className="alert alert-error" role="alert">{error}</div> : null;
+// The one error component. Outages (server down) show a calm card that refreshes itself; other errors show a red notice.
+export function ErrorNotice({ error, onRetry, what = "this" }: { error: string; onRetry?: () => void; what?: string }) {
+  if (!error) return null;
+  const outage = isServiceMessage(error);
+  if (!outage && !onRetry) return <div className="alert alert-error" role="alert">{error}</div>;
+  return <div className={`load-failed${outage ? " outage" : ""}`} role={outage ? "status" : "alert"}>
+    <span className="load-failed-icon"><Icon name={outage ? "refresh" : "alert"} size={22} /></span>
+    <div><strong>{outage ? `Can't load ${what} right now` : `${what[0].toUpperCase()}${what.slice(1)} could not be loaded`}</strong><p className="small muted">{outage ? "The server isn't responding. This page will refresh by itself when it's back." : error}</p></div>
+    {onRetry && <Button variant="outline" size="sm" onClick={onRetry}><Icon name="refresh" />Try again</Button>}
+  </div>;
 }
+export const LoadFailed = ErrorNotice;
 export function Loading() { return <p className="muted" role="status">Loading...</p>; }
 export type PagerList = {
   page: number; previous: () => void; next: () => void; hasPrevious: boolean; loading: boolean;

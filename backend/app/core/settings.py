@@ -1,3 +1,4 @@
+import ipaddress
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -9,7 +10,9 @@ from sqlalchemy.exc import ArgumentError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 LOCAL_SECRET_FILE = BACKEND_ROOT.parent / ".docker-secrets" / "postgres_password"
+LOCAL_REDIS_SECRET_FILE = BACKEND_ROOT.parent / ".docker-secrets" / "redis_password"
 LOCAL_DATABASE_URL = "postgresql+psycopg://{user}:{password}@127.0.0.1:55432/leadberry"
+LOCAL_REDIS_URL = "redis://:{password}@127.0.0.1:6379/0"
 
 
 class Settings(BaseSettings):
@@ -22,13 +25,40 @@ class Settings(BaseSettings):
     app_environment: Literal["development", "test", "production"] = "development"
     database_url: SecretStr | None = None
     auth_database_url: SecretStr | None = None
+    redis_url: SecretStr | None = None
+    invitation_token_key: SecretStr | None = Field(None, min_length=32)
     session_hours: int = Field(12, ge=1, le=24)
+    redis_max_connections: int = Field(12, ge=1, le=100)
+    http_timeout_seconds: float = Field(20, ge=1, le=120)
+    http_max_connections: int = Field(20, ge=1, le=200)
+    marketplace_worker_concurrency: int = Field(8, ge=1, le=32)
+    marketplace_org_concurrency: int = Field(2, ge=1, le=8)
+    api_requests_per_minute: int = Field(120, ge=10, le=10000)
+    api_rate_limit_buckets: int = Field(10000, ge=100, le=100000)
+    api_max_inflight_requests: int = Field(100, ge=10, le=1000)
+    api_max_request_bytes: int = Field(1_048_576, ge=1024, le=52_428_800)
+    trusted_proxy_networks: list[str] = Field(
+        default_factory=lambda: ["127.0.0.0/8", "::1/128"]
+    )
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "http://127.0.0.1:8000"])
     db_pool_size: int = Field(6, ge=1, le=30)
     db_pool_timeout_seconds: int = Field(5, ge=1, le=30)
+    db_pool_recycle_seconds: int = Field(1800, ge=60, le=7200)
+    export_concurrency: int = Field(2, ge=1, le=8)
     db_statement_timeout_ms: int = Field(10000, ge=100, le=120000)
     db_lock_timeout_ms: int = Field(2000, ge=100, le=30000)
     marketplace_public_key_file: Path | None = None
+
+    @field_validator("trusted_proxy_networks")
+    @classmethod
+    def validate_proxy_networks(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            try:
+                normalized.append(str(ipaddress.ip_network(value, strict=False)))
+            except ValueError:
+                raise ValueError("TRUSTED_PROXY_NETWORKS must contain IP networks") from None
+        return normalized
 
     @field_validator("database_url", "auth_database_url")
     @classmethod
@@ -56,8 +86,15 @@ class Settings(BaseSettings):
             self.database_url = SecretStr(LOCAL_DATABASE_URL.format(user="crm_api", password=password))
             if self.auth_database_url is None:
                 self.auth_database_url = SecretStr(LOCAL_DATABASE_URL.format(user="crm_auth", password=password))
+            if self.redis_url is None and LOCAL_REDIS_SECRET_FILE.is_file():
+                redis_password = quote(LOCAL_REDIS_SECRET_FILE.read_text(encoding="utf-8").strip(), safe="")
+                self.redis_url = SecretStr(LOCAL_REDIS_URL.format(password=redis_password))
         if self.database_url is None:
             raise ValueError("DATABASE_URL must be set outside development")
+        if self.marketplace_org_concurrency > self.marketplace_worker_concurrency:
+            raise ValueError(
+                "MARKETPLACE_ORG_CONCURRENCY cannot exceed MARKETPLACE_WORKER_CONCURRENCY"
+            )
         if self.db_lock_timeout_ms >= self.db_statement_timeout_ms:
             raise ValueError("DB_LOCK_TIMEOUT_MS must be below DB_STATEMENT_TIMEOUT_MS")
         if self.app_environment == "production":

@@ -113,6 +113,14 @@ class AcceptInvite(Input):
     password: SecretStr = Field(min_length=12, max_length=128)
 
 
+class ProfileInput(Input):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    display_name: str = Field(min_length=1, max_length=200)
+    phone: str | None = Field(None, max_length=40)
+    job_title: str | None = Field(None, max_length=120)
+
+
 class MembershipUpdate(Input):
     status: Literal["active", "disabled"]
     role_ids: list[UUID] = Field(default_factory=list, max_length=20)

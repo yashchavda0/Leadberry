@@ -11,6 +11,7 @@ import Icon from "@/components/Icon";
 import { IconButton } from "@/components/ui/icon-button";
 import type { ColumnDef } from "@tanstack/react-table";
 import PermissionGroups from "@/components/PermissionGroups";
+import InvitationTokenDialog from "@/components/InvitationTokenDialog";
 import LandingPagePicker from "@/components/LandingPagePicker";
 import SelectionPicker from "@/components/SelectionPicker";
 import { Guard, useSession } from "@/components/Session";
@@ -43,6 +44,7 @@ function Users() {
   const { can, identity } = useSession();
   const [editing, setEditing] = useState<Member | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [invitationMember, setInvitationMember] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Member | null>(null);
   const [busy, setBusy] = useState(false);
   const notify = useNotify();
@@ -59,7 +61,8 @@ function Users() {
   return <><div className="page-header"><div><h2>Users</h2><p className="muted">Invite colleagues, assign roles and select their landing pages.</p></div>{can("users.manage") && <button className="btn btn-primary" onClick={() => { setInviting(true); setEditing(null); }}>+ Invite user</button>}</div>
     <ErrorNotice error={list.error} />
     {deleting && <section className="card editor-card" aria-label="Confirm user deletion"><h2>Delete user: {deleting.display_name}?</h2><p>This disables workspace access and revokes sessions. Leads, team membership, role grants and history are preserved. Accepted users can be reactivated through Edit access.</p><div className="form-actions"><button className="btn" type="button" disabled={busy} onClick={() => { setDeleting(null); }}>Cancel</button><button className="btn btn-danger" type="button" disabled={busy} onClick={() => void deactivate()}>{busy ? "Deleting..." : "Confirm delete"}</button></div></section>}
-    {inviting && <InviteEditor onClose={() => { setInviting(false); list.reload(); }} />}
+    {inviting && <InviteEditor onClose={() => { setInviting(false); list.reload(); }} onCreated={identity?.is_owner ? memberId => { setInviting(false); setInvitationMember(memberId); list.reload(); } : undefined} />}
+    {identity?.is_owner && invitationMember && <InvitationTokenDialog key={invitationMember} memberId={invitationMember} onClose={() => { setInvitationMember(null); list.reload(); }} />}
     {editing && <MemberEditor key={editing.id} member={editing} onClose={() => { setEditing(null); list.reload(); }} />}
     <DataTable data={list.data?.data} rowKey={member => member.id} list={list}
       columns={[
@@ -67,14 +70,23 @@ function Users() {
         { id: "email", meta: { width: "250px" }, header: "Email", accessorFn: member => member.email, enableSorting: true },
         { id: "role", meta: { width: "190px" }, header: "Role", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="user-role-cell">{member.is_owner ? <Badge>Owner</Badge> : memberRoles(member).map(role => role.name).join(", ") || "—"}{member.id === identity?.membership_id && <Badge variant="info">You</Badge>}</div>; } },
         { id: "level", meta: { width: "70px", align: "center" }, header: "Level", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : memberRoles(row.original).length ? Math.min(...memberRoles(row.original).map(role => role.level)) : "—" },
-        { id: "status", meta: { width: "110px" }, header: "Status", accessorFn: member => member.status, enableSorting: true, cell: ({ row }) => <Badge variant={row.original.status === "active" ? "success" : "outline"}>{row.original.status}</Badge> },
-        { id: "actions", meta: { width: "90px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => { const member = row.original; return <div className="actions user-row-actions">{can("users.manage") && member.status !== "invited" && (!member.is_owner || identity?.is_owner) && <IconButton variant="outline" label="Edit access" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}><Icon name="edit" /></IconButton>}{can("users.manage") && member.status !== "disabled" && member.id !== identity?.membership_id && (!member.is_owner || identity?.is_owner) && <IconButton variant="destructive" label="Delete user" onClick={() => { setDeleting(member); }}><Icon name="trash" /></IconButton>}{member.status === "invited" && <span className="small muted">Awaiting acceptance</span>}</div>; } },
+        { id: "status", meta: { width: "116px" }, header: "Status", accessorFn: member => member.status, enableSorting: true, cell: ({ row }) => <Badge variant={row.original.status === "active" ? "success" : "outline"}>{row.original.status}</Badge> },
         { id: "rights", meta: { width: "190px" }, header: "Rights", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "Full Owner access" : `${row.original.visibility_override || "From roles"} / ${Object.keys(row.original.permission_overrides).length} overrides` },
         { id: "reporting", meta: { width: "170px" }, header: "Reporting to", enableSorting: false, cell: ({ row }) => row.original.is_owner ? "—" : [...new Set(memberRoles(row.original).map(role => role.reports_to_name).filter((name): name is string => Boolean(name)))].join(", ") || "—" },
+        { id: "actions", meta: { width: "120px", align: "right" }, header: "Actions", enableSorting: false, cell: ({ row }) => {
+          const member = row.original;
+          const invited = member.status === "invited";
+          const canManage = can("users.manage") && (!member.is_owner || identity?.is_owner);
+          return <div className="actions user-row-actions">
+            {identity?.is_owner && invited && <IconButton variant="outline" label="View invitation token" onClick={() => setInvitationMember(member.id)}><Icon name="external" /></IconButton>}
+            {canManage && !invited && <IconButton variant="outline" label="Edit access" onClick={() => { setEditing(member); setInviting(false); setDeleting(null); }}><Icon name="edit" /></IconButton>}
+            {canManage && member.status !== "disabled" && member.id !== identity?.membership_id && <IconButton variant="destructive" label="Delete user" onClick={() => setDeleting(member)}><Icon name="trash" /></IconButton>}
+          </div>;
+        } },
       ] satisfies ColumnDef<Member, unknown>[]} />
   </>;
 }
-function InviteEditor({ onClose }: { onClose: () => void }) {
+function InviteEditor({ onClose, onCreated }: { onClose: () => void; onCreated?: (memberId: string) => void }) {
   const [roles, setRoles] = useState<string[]>([]);
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,8 +95,9 @@ function InviteEditor({ onClose }: { onClose: () => void }) {
     event.preventDefault(); setBusy(true);
     const values = new FormData(event.currentTarget);
     try {
-      const result = await crm<{ invitation_token: string }>("/invitations", { method: "POST", body: JSON.stringify({ email: values.get("email"), display_name: values.get("display_name"), role_ids: roles, visibility_override: values.get("visibility_override") || null, landing_page: values.get("landing_page") || null }) });
-      setToken(result.invitation_token);
+      const result = await crm<{ membership_id: string; invitation_token: string }>("/invitations", { method: "POST", body: JSON.stringify({ email: values.get("email"), display_name: values.get("display_name"), role_ids: roles, visibility_override: values.get("visibility_override") || null, landing_page: values.get("landing_page") || null }) });
+      if (onCreated) onCreated(result.membership_id);
+      else setToken(result.invitation_token);
       notify.success("Deliver the token privately before it expires.", { title: "Invitation created" });
     } catch (error) { notify.error(errorMessage(error), { title: "Invitation could not be created" }); }
     finally { setBusy(false); }

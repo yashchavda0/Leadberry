@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import LeadsTable, { isPiiLeadColumn, type LeadSort } from "@/components/LeadsTable";
+import LeadsTable, { isPiiLeadColumn } from "@/components/LeadsTable";
 import LeadFilters from "@/components/LeadFilters";
 import LeadContextBar from "@/components/LeadContextBar";
 import { Tip } from "@/components/ui/tip";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useNotify } from "@/components/Notifications";
 import ExportLeadsButton from "@/components/ExportLeadsButton";
 import { Guard, useSession } from "@/components/Session";
-import { ErrorNotice, Loading, Pagination } from "@/components/Ui";
+import { ErrorNotice, LoadFailed, Loading, Pagination } from "@/components/Ui";
 import { crm, errorMessage, type Lead, type LeadCustomField, type Status } from "@/lib/crm";
 import { usePaged, useResource } from "@/lib/hooks";
 
@@ -31,8 +31,6 @@ function Leads() {
     return initial.toString();
   });
   const [columns, setColumns] = useState<string[]>(DEFAULT_LEAD_COLUMNS);
-  const [sort, setSort] = useState<LeadSort>({ key: "received_at", direction: "desc" });
-  const [pageSize, setPageSize] = useState(25);
   const [preferenceBusy, setPreferenceBusy] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ lead: Lead; restore: boolean } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -41,10 +39,7 @@ function Leads() {
   const query = new URLSearchParams(filters);
   if (integrationId) query.set("integration_id", integrationId);
   if (backfillId) query.set("backfill_id", backfillId);
-  const listQuery = new URLSearchParams(query);
-  listQuery.set("sort_by", sort.key);
-  listQuery.set("sort_dir", sort.direction);
-  const list = usePaged<Lead>(`/leads?${listQuery}`, pageSize);
+  const list = usePaged<Lead>(`/leads?${query}`);
   useEffect(() => { if (preferences.data) setColumns(preferences.data.columns); }, [preferences.data]);
   async function saveColumns(next: string[]) {
     setPreferenceBusy(true);
@@ -64,8 +59,8 @@ function Leads() {
     {backfillId && <LeadContextBar kind="Showing leads imported by" value={searchParams.get("import") || "Selected history import"} clearHref="/leads" clearLabel="Show all leads" icon="download" />}
     <section className="leads-workspace" aria-label="Lead directory">
       <LeadFilters value={filters} onChange={setFilters} options={options.data} canAssign={can("leads.assign")} canArchive={can("leads.archive") || can("leads.restore")} loading={list.loading} tools={<><Tip label="Refresh leads" disabled={list.loading}><Button variant="ghost" size="icon" aria-label="Refresh leads" disabled={list.loading} onClick={list.reload}><Icon name="refresh" /></Button></Tip><LeadColumnPicker columns={columns} customFields={options.data?.custom_fields} busy={preferenceBusy || preferences.loading || options.loading} pii={can("leads.pii.view")} onChange={next => void saveColumns(next)} /></>} />
-      <ErrorNotice error={options.error || list.error || preferences.error} />{list.error && <Button variant="outline" onClick={list.reload}>Retry</Button>}{list.loading ? <Loading /> : list.data && <LeadsTable leads={list.data.data} customFields={options.data?.custom_fields} columns={columns.filter(key => can("leads.pii.view") || !isPiiLeadColumn(key))} offset={(list.page - 1) * list.pageSize} onArchive={lead => setPendingAction({ lead, restore: false })} onRestore={lead => setPendingAction({ lead, restore: true })} busyId={busyId} canArchive={can("leads.archive")} canRestore={can("leads.restore")} sort={sort} onSortChange={setSort} />}
-      <Pagination list={list} pageSizes={[25, 50, 100]} onPageSizeChange={setPageSize} />
+      <LoadFailed what="leads" error={list.error || options.error || preferences.error} onRetry={() => { list.reload(); }} />{list.loading ? <Loading /> : list.data && <LeadsTable leads={list.data.data} customFields={options.data?.custom_fields} columns={columns.filter(key => can("leads.pii.view") || !isPiiLeadColumn(key))} offset={(list.page - 1) * list.pageSize} onArchive={lead => setPendingAction({ lead, restore: false })} onRestore={lead => setPendingAction({ lead, restore: true })} busyId={busyId} canArchive={can("leads.archive")} canRestore={can("leads.restore")} />}
+      <Pagination list={list} />
     </section>
     {pendingAction && <ConfirmDialog title={`${pendingAction.restore ? "Restore" : "Archive"} lead`} message={`${pendingAction.lead.name} will ${pendingAction.restore ? "return to the active leads list" : "move to the archived leads list"}.`} confirmLabel={pendingAction.restore ? "Restore lead" : "Archive lead"} tone={pendingAction.restore ? "primary" : "danger"} busy={Boolean(busyId)} onCancel={() => setPendingAction(null)} onConfirm={() => void changeArchive(pendingAction.lead, pendingAction.restore)} />}
   </>;

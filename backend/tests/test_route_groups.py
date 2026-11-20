@@ -60,6 +60,7 @@ GROUPS = {
         "/teams/{team_id}": {"put"},
     },
     "Dashboard": {"/dashboard": {"get"}},
+    "Reports": {"/reports/leads": {"get"}, "/reports/leads/export": {"get"}},
     "Marketplace": {
         "/marketplace/providers": {"get"},
         "/marketplace/accounts": {"get", "post"},

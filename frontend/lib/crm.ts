@@ -108,6 +108,7 @@ export type MarketplaceRun = {
   finished_at: string | null;
 };
 export type Identity = {
+  display_name: string;
   organization_id: string;
   membership_id: string;
   user_id: string;
@@ -238,7 +239,6 @@ export type Lead = {
   received_at: string;
   updated_at: string;
   pii_redacted: boolean;
-  is_repeat_customer?: boolean | null;
 };
 export type Dashboard = {
   total: number;
@@ -256,17 +256,15 @@ export type Dashboard = {
   statuses: { id: string; name: string; color: string; category: string; count: number }[];
   sources: { name: string; count: number; converted: number; lost: number }[];
   people: { id: string | null; name: string; total: number; converted: number; lost: number; open: number; overdue: number }[];
-  trend: { day: string; received: number; converted: number; won_events: number; lost_events: number }[];
-  period: { start: string; end: string; previous_start: string; previous_end: string; received: number; converted: number; lost: number; previous_received: number; previous_converted: number; previous_lost: number };
-  aging: { days_0_3: number; days_4_7: number; days_8_14: number; days_15_30: number; days_over_30: number; unchanged_7_days: number };
+  trend: { day: string; received: number; converted: number }[];
+  period: { received: number; converted: number; lost: number; previous_received: number; previous_converted: number; previous_lost: number; start: string; end: string; previous_start: string; previous_end: string };
   quality: { no_contact: number; no_city: number };
+  aging: { days_0_3: number; days_4_7: number; days_8_14: number; days_15_30: number; days_over_30: number; unchanged_7_days: number };
   update_speed: { updated: number; average_days: number | null; median_days: number | null };
-  outcomes: { conversion_events: number; converted_leads: number; loss_events: number; lost_leads: number };
-  stage_activity: { name: string; category: string; transitions: number; leads: number }[];
+  outcomes: { converted_leads: number; lost_leads: number; conversion_events: number; loss_events: number };
+  stage_activity: { name: string; leads: number; transitions: number }[];
   recent: Lead[];
 };
-
-export const SERVICE_UNAVAILABLE = "Service is not available right now. Please try again later.";
 
 const messages: Record<string, string> = {
   authentication_required: "Please sign in to continue.",
@@ -280,6 +278,8 @@ const messages: Record<string, string> = {
     "Your security token has changed. Reload this page and try again.",
   invalid_invitation:
     "This invitation is invalid, expired or already accepted.",
+  invitation_not_available:
+    "This token is no longer available. If the user still needs access, reissue their invitation.",
   mfa_required_not_available:
     "This organization requires MFA, which is not available yet. Contact its administrator.",
   grant_exceeds_access:
@@ -315,15 +315,17 @@ const messages: Record<string, string> = {
     "Choose an existing active lead field for this status requirement.",
   custom_field_required_by_status:
     "This field is required by a status and cannot be deactivated.",
-  database_unavailable: SERVICE_UNAVAILABLE,
-  identity_database_not_configured: SERVICE_UNAVAILABLE,
+  database_unavailable: "The database is unavailable. Please retry shortly.",
+  identity_database_not_configured:
+    "The identity backend is not configured. Contact your administrator.",
   rate_limited: "Too many attempts. Please wait before trying again.",
   assignment_permission_required:
     "You need lead assignment permission for this change.",
   assignment_exceeds_scope: "That assignment is outside your data scope.",
   pii_permission_required:
     "Contact details require the leads.pii.view permission.",
-  origin_not_allowed: SERVICE_UNAVAILABLE,
+  origin_not_allowed:
+    "This website origin is not permitted by the backend configuration.",
   invalid_reporting_role: "Choose a reporting role in this organization.",
   role_hierarchy_cycle:
     "A role cannot report to itself or one of its descendants.",
@@ -344,7 +346,8 @@ const messages: Record<string, string> = {
   provider_adapter_unavailable: "This provider cannot be connected yet.",
   invalid_provider_configuration: "Fill in every required provider field.",
   invalid_provider_credentials: "Enter the API key for this provider.",
-  marketplace_key_unavailable: SERVICE_UNAVAILABLE,
+  marketplace_key_unavailable:
+    "Secure credential storage is not configured on the server.",
   invalid_sync_interval: "Choose one of the offered sync intervals.",
   marketplace_backfill_active:
     "A history import is already running for this connection. Cancel it or wait for it to finish.",
@@ -369,7 +372,8 @@ export const marketplaceErrors: Record<string, string> = {
     "The provider could not be reached. Try the connection test again.",
   provider_timeout:
     "The provider took too long to respond. Try the connection test again.",
-  connector_internal_error: SERVICE_UNAVAILABLE,
+  connector_internal_error:
+    "The connector hit an unexpected error. Try again; check the worker terminal if it repeats.",
   provider_response_rejected:
     "The provider refused the request. Confirm API access is enabled for this account.",
   provider_payload_invalid: "The provider returned an unexpected response.",
@@ -379,17 +383,15 @@ export const marketplaceErrors: Record<string, string> = {
     "That period is older than the provider keeps (IndiaMART: 365 days), so it can no longer be fetched.",
   provider_history_not_ready:
     "IndiaMART releases leads older than a new API key 24 hours after the key was generated. Retried automatically.",
-  worker_lease_expired: SERVICE_UNAVAILABLE,
-  marketplace_key_unavailable: SERVICE_UNAVAILABLE,
+  worker_lease_expired:
+    "The connector stopped while working on this request. The period goes back in the queue.",
+  marketplace_key_unavailable:
+    "The connector worker could not decrypt this key. Re-enter the API key.",
   integration_actor_inactive:
     "The member who created this connection lost marketplace access. Disconnect it and connect it again.",
   integration_default_status_missing:
     "Set a default lead status, then sync again.",
 };
-
-export function marketplaceErrorMessage(code: string): string {
-  return marketplaceErrors[code] || SERVICE_UNAVAILABLE;
-}
 
 export class ApiError extends Error {
   constructor(
@@ -399,6 +401,42 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** True when the server could not be reached or is failing, as opposed to rejecting a request. */
+export function isServiceError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 0 || error.status >= 500);
+}
+
+const NETWORK_MESSAGE = "We can't reach the server. Check your internet connection or try again in a moment.";
+const UNAVAILABLE_MESSAGE = "The service is temporarily unavailable. Your data is safe; please try again in a moment.";
+const SERVER_ERROR_MESSAGE = "Something went wrong on our side. Please try again in a moment.";
+/** True for the messages produced when the server is unreachable or failing. */
+export function isServiceMessage(message: string): boolean {
+  return message === NETWORK_MESSAGE || message === UNAVAILABLE_MESSAGE || message === SERVER_ERROR_MESSAGE;
+}
+let serviceDown = false;
+function reportService(down: boolean) {
+  if (down === serviceDown || typeof window === "undefined") return;
+  serviceDown = down;
+  window.dispatchEvent(new Event(down ? "crm-service-down" : "crm-service-up"));
+}
+
+async function request(url: string, init: RequestInit): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    reportService(true);
+    throw new ApiError(0, "network_error", NETWORK_MESSAGE);
+  }
+  if (response.status >= 500) {
+    reportService(true);
+    throw new ApiError(response.status, "service_unavailable", response.status === 500 ? SERVER_ERROR_MESSAGE : UNAVAILABLE_MESSAGE);
+  }
+  reportService(false);
+  return response;
 }
 
 export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -414,7 +452,7 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
         decodeURIComponent(cookie.slice("crm_csrf=".length)),
       );
   }
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await request(`/api/v1${path}`, {
     ...init,
     headers,
     credentials: "same-origin",
@@ -432,7 +470,7 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(
       response.status,
       "invalid_response",
-      SERVICE_UNAVAILABLE,
+      "The API returned an unexpected response. Check backend availability.",
     );
   }
   if (!response.ok) {
@@ -462,18 +500,16 @@ export async function crm<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(
       response.status,
       code,
-      response.status >= 500 ? SERVICE_UNAVAILABLE : validation ||
+      validation ||
         messages[code] ||
-        SERVICE_UNAVAILABLE,
+        `Request rejected: ${code.replaceAll("_", " ")} (${response.status}).`,
     );
   }
   return data as T;
 }
 
 export function errorMessage(error: unknown): string {
-  return error instanceof TypeError
-    ? SERVICE_UNAVAILABLE
-    : error instanceof Error
+  return error instanceof Error
     ? error.message
     : "An unexpected error occurred.";
 }
@@ -483,7 +519,7 @@ export async function download(
   path: string,
   fallbackName: string,
 ): Promise<string> {
-  const response = await fetch(`/api/v1${path}`, {
+  const response = await request(`/api/v1${path}`, {
     credentials: "same-origin",
     cache: "no-store",
   });
@@ -499,7 +535,8 @@ export async function download(
     throw new ApiError(
       response.status,
       code,
-      response.status >= 500 ? SERVICE_UNAVAILABLE : messages[code] || SERVICE_UNAVAILABLE,
+      messages[code] ||
+        `Download failed: ${code.replaceAll("_", " ")} (${response.status}).`,
     );
   }
   const name =
@@ -603,10 +640,11 @@ export function holdReasonText(
       until && new Date(until).getTime() > Date.now()
         ? `${provider} expires API keys that are unused for 7 days. Resume before ${formatDate(until)} to keep this key.`
         : `This key has not been used for over 7 days and may have expired at ${provider}. Generate a new key if the test fails.`,
-    worker_offline: SERVICE_UNAVAILABLE,
+    worker_offline:
+      "The connector is offline. Requests run as soon as it starts again.",
     gap_recovery: `Live sync resumed with the most recent period. Leads missed before that are fetched from ${provider} in the free request slots, newest first.`,
   };
-  return texts[reason] || SERVICE_UNAVAILABLE;
+  return texts[reason] || reason.replaceAll("_", " ");
 }
 
 export const landingPages = [

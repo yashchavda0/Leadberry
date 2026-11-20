@@ -3,8 +3,8 @@ from contextlib import asynccontextmanager
 from fastapi import Request
 from sqlalchemy import text
 
-from ...core.database import tenant_transaction
 from ...core.phone import normalize_phone
+from ...core.unit_of_work import UnitOfWork
 from ..identity.service import AccessError, Principal, effective_access
 
 
@@ -17,9 +17,10 @@ def lead_payload(row) -> dict:
 
 @asynccontextmanager
 async def access(request: Request, user: Principal, permission: str):
-    async with tenant_transaction(
+    async with UnitOfWork(
         request.app.state.database_engine, user.org_id, user.member_id
-    ) as connection:
+    ) as unit_of_work:
+        connection = unit_of_work.connection
         # Shared locks let lead requests run concurrently while access writers use an exclusive lock.
         await connection.execute(
             text("SELECT id FROM crm.organizations WHERE id=:org FOR SHARE"),
@@ -68,7 +69,7 @@ def fields(user: Principal) -> str:
     )
     return (
         "l.id,l.name,l.company,l.city,l.state,l.product,l.source_provider,l.source_record_id,l.status_id,"
-        "l.integration_id,a.name AS source_account_name,l.backfill_id,"
+        "l.integration_id,a.name AS source_account_name,l.backfill_id,l.fetch_count,l.last_fetched_at,"
         "s.name AS status,s.color AS status_color,l.assigned_membership_id,m.display_name AS assignee,"
         "l.team_id,t.name AS team_name,l.tags,l.next_follow_up_at,l.archived_at,l.row_version,l.received_at,l.updated_at,l.status_changed_at,"
         f"{contacts},{'false' if pii else 'true'} AS pii_redacted,{repeat_customer} AS is_repeat_customer"

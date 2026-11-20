@@ -227,6 +227,12 @@
 .chart-column { border-radius: 3px; }
 .chart-maximum, .chart-zero { font-size: 12px; }
 .chart-dates { margin-top: 12px; font-size: 12px; }
+@media (min-width: 951px) {
+	.dashboard-analysis { align-items: stretch; }
+	.dashboard-analysis > .analytics-section { align-self: stretch; height: auto; }
+	.dashboard-analysis > .analytics-section:last-child { display: flex; flex-direction: column; }
+	.dashboard-analysis .intake-chart { flex: 1 1 190px; min-height: 190px; }
+}
 .followup-breakdown { gap: 12px; }
 .followup-breakdown > div { flex-wrap: nowrap; gap: 9px; font-size: 13px; }
 .followup-copy { display: grid; min-width: 0; gap: 5px; }
@@ -238,6 +244,9 @@
 .followup-icon.text-neutral { background: #f1f2f5; color: #697386; }
 .analytics-observations { gap: 10px 24px; font-size: 13px; line-height: 1.55; }
 .action-insights { grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 0 28px; }
+@media (min-width: 1200px) {
+	.action-insights:has(> .action-insight:nth-child(4):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .action-insight { grid-template-columns: 36px minmax(0, 1fr) 24px; gap: 12px; padding: 16px 0; }
 .insight-icon { width: 34px; height: 34px; background: #f0ebff; color: var(--primary-dark); }
 .insight-urgent .insight-icon { background: #fbeaec; color: var(--analytics-lost); }

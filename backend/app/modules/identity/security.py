@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import hashlib
+import hmac
 import secrets
 from uuid import UUID
 
@@ -18,6 +20,12 @@ def digest(value: str) -> bytes:
 
 def opaque_token(org_id: UUID, entity_id: UUID) -> str:
     return f"{org_id}.{entity_id}.{secrets.token_urlsafe(32)}"
+
+
+def invitation_token(org_id: UUID, invite_id: UUID, key: bytes) -> str:
+    signature = hmac.digest(key, b"crm-invitation:v1:" + org_id.bytes + invite_id.bytes, "sha256")
+    secret = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+    return f"{org_id}.{invite_id}.{secret}"
 
 
 def parse_token(value: str) -> tuple[UUID, UUID]:

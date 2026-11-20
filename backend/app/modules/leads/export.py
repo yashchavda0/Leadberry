@@ -70,12 +70,51 @@ def value_cell(sheet, value, zone: ZoneInfo) -> Cell | None:
     return text_cell(sheet, str(value))
 
 
+def create_lead_workbook(headers: list[str], widths: list[int]):
+    workbook = Workbook(write_only=True)
+    sheet = workbook.create_sheet("Leads")
+    sheet.freeze_panes = "A2"
+    for index, width in enumerate(widths, 1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    bold = Font(bold=True)
+    header_cells = [text_cell(sheet, header) for header in headers]
+    for cell in header_cells:
+        cell.font = bold
+    sheet.append(header_cells)
+    return workbook, sheet
+
+
+def append_lead_rows(sheet, rows, columns, custom, zone: ZoneInfo) -> None:
+    for row in rows:
+        row = lead_payload(row)
+        values = [row[column[0]] for column in columns] + [
+            (row["custom_fields"] or {}).get(field["field_key"]) for field in custom
+        ]
+        sheet.append([value_cell(sheet, value, zone) for value in values])
+
+
+def serialize_lead_workbook(workbook, sheet, headers: list[str], count: int) -> bytes:
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{count + 1}"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
 @router.get("/leads/export")
 async def export_leads(
     request: Request,
     user: User,
     filters: Annotated[LeadFilters, Depends(lead_filters)],
 ):
+    resources = request.app.state.process_resources
+    await resources.acquire_export()
+    try:
+        return await _build_lead_export(request, user, filters, resources)
+    finally:
+        resources.release_export()
+
+
+async def _build_lead_export(request, user, filters, resources):
     async with access(request, user, "leads.export") as (connection, current):
         if "leads.view" not in current.permissions:
             raise AccessError(403, "permission_denied")
@@ -107,17 +146,11 @@ async def export_leads(
             if pii
             else []
         )
-        workbook = Workbook(write_only=True)
-        sheet = workbook.create_sheet("Leads")
-        sheet.freeze_panes = "A2"
         headers = [column[1] for column in columns] + [field["label"] for field in custom]
-        for index, width in enumerate([column[2] for column in columns] + [20] * len(custom), 1):
-            sheet.column_dimensions[get_column_letter(index)].width = width
-        bold = Font(bold=True)
-        header_cells = [text_cell(sheet, header) for header in headers]
-        for cell in header_cells:
-            cell.font = bold
-        sheet.append(header_cells)
+        widths = [column[2] for column in columns] + [20] * len(custom)
+        workbook, sheet = await resources.run_export(
+            create_lead_workbook, headers, widths
+        )
         count, cursor = 0, None
         while True:
             batch = list(conditions)
@@ -143,25 +176,22 @@ async def export_leads(
             count += len(rows)
             if count > EXPORT_LIMIT:
                 raise AccessError(422, "lead_export_too_large")
-            for row in rows:
-                row = lead_payload(row)
-                values = [row[column[0]] for column in columns] + [
-                    (row["custom_fields"] or {}).get(field["field_key"]) for field in custom
-                ]
-                sheet.append([value_cell(sheet, value, zone) for value in values])
+            await resources.run_export(
+                append_lead_rows, sheet, rows, columns, custom, zone
+            )
             if len(rows) < BATCH_SIZE:
                 break
             cursor = (rows[-1]["received_at"], rows[-1]["id"])
-        sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{count + 1}"
         await audit(
             connection, current.org_id, current.member_id, "leads.exported", filters.backfill_id
         )
-    buffer = BytesIO()
-    await asyncio.to_thread(workbook.save, buffer)
+    content = await resources.run_export(
+        serialize_lead_workbook, workbook, sheet, headers, count
+    )
     stamp = datetime.now(timezone.utc).astimezone(zone).strftime("%Y%m%d-%H%M")
     name = f"{'imported-leads' if filters.backfill_id else 'leads'}-{stamp}.xlsx"
     return Response(
-        buffer.getvalue(),
+        content,
         media_type=XLSX,
         headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"},
     )

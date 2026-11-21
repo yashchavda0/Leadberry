@@ -607,6 +607,7 @@ test("landing selection respects permission revocation and role-only management 
     organization_id: "org",
     membership_id: "member",
     user_id: "user",
+    display_name: "Member",
     is_owner: false,
     data_scope: "own",
     permissions: ["dashboard.view", "leads.view"],
@@ -800,14 +801,15 @@ test("lead table preferences and typed required fields work in the manual lead f
     if (path === `/leads/${leadId}/status-history` && method === "GET")
       return fulfill({ data: statusHistory });
     if (path === `/leads/${leadId}/status` && method === "POST") {
-      statusChange = request.postDataJSON();
-      statusChanges.push(statusChange);
+      const change = request.postDataJSON();
+      statusChange = change;
+      statusChanges.push(change);
       const nextStatus =
-        statusChange.status_id === "status-qualified"
+        change.status_id === "status-qualified"
           ? "Qualified"
-          : statusChange.status_id === "status-contacted"
+          : change.status_id === "status-contacted"
             ? "Contacted"
-            : statusChange.status_id === "status-follow-up"
+            : change.status_id === "status-follow-up"
               ? "Follow-up scheduled"
               : "New";
       statusHistory = [
@@ -816,14 +818,14 @@ test("lead table preferences and typed required fields work in the manual lead f
           id: randomUUID(),
           from_status: currentStatusName,
           to_status: nextStatus,
-          note: statusChange.note,
+          note: change.note,
           actor_name: "Owner",
           created_at: new Date().toISOString(),
         },
       ];
-      currentStatusId = statusChange.status_id;
+      currentStatusId = change.status_id;
       currentStatusName = nextStatus;
-      currentFollowUp = statusChange.next_follow_up_at || null;
+      currentFollowUp = change.next_follow_up_at || null;
       rowVersion += 1;
       return fulfill({ id: leadId, row_version: rowVersion });
     }

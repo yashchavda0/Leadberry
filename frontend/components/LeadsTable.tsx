@@ -90,7 +90,7 @@ function leadSortValue(column: LeadColumn, lead: Lead): string | number | boolea
     case "enquiry": return lead.pii_redacted ? null : lead.enquiry;
     case "status_changed_at": return lead.status_changed_at;
     case "status": return lead.status;
-    case "source_name": return lead.source_account_name;
+    case "source_name": return lead.source_account_name ?? null;
     case "source_provider": return lead.source_provider;
     case "source_record_id": return lead.source_record_id;
     case "received_at": return lead.received_at;
@@ -101,6 +101,7 @@ function leadSortValue(column: LeadColumn, lead: Lead): string | number | boolea
     case "updated_at": return lead.updated_at;
     case "archived_at": return lead.archived_at;
   }
+  return null;
 }
 
 function compareLeadValues(column: LeadColumn, first: string | number | boolean | null, second: string | number | boolean | null) {

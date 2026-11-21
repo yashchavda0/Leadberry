@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 
 from alembic import context
@@ -20,9 +21,9 @@ def run_migrations(connection: Connection) -> None:
 
 
 async def run_online() -> None:
-    settings = Settings()
+    url = os.environ.get("MIGRATION_DATABASE_URL") or Settings().database_url.get_secret_value()
     engine = create_async_engine(
-        settings.database_url.get_secret_value(),
+        url,
         poolclass=pool.NullPool,
         hide_parameters=True,
         connect_args={"connect_timeout": 5},

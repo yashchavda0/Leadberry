@@ -108,7 +108,10 @@ class ProcessResources:
             self.identity_engine = create_database_engine(auth_settings)
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(settings.http_timeout_seconds, connect=5),
-            limits=httpx.Limits(max_connections=settings.http_max_connections, max_keepalive_connections=settings.http_max_connections),
+            limits=httpx.Limits(
+                max_connections=settings.http_max_connections,
+                max_keepalive_connections=settings.http_max_connections,
+            ),
             follow_redirects=False,
             trust_env=False,
         )

@@ -23,7 +23,9 @@ def opaque_token(org_id: UUID, entity_id: UUID) -> str:
 
 
 def invitation_token(org_id: UUID, invite_id: UUID, key: bytes) -> str:
-    signature = hmac.digest(key, b"crm-invitation:v1:" + org_id.bytes + invite_id.bytes, "sha256")
+    signature = hmac.digest(
+        key, b"crm-invitation:v1:" + org_id.bytes + invite_id.bytes, "sha256"
+    )
     secret = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
     return f"{org_id}.{invite_id}.{secret}"
 
@@ -46,7 +48,10 @@ class PasswordService:
     async def verify(self, password: str, stored_hash: str | None) -> bool:
         def verify() -> bool:
             try:
-                return hasher.verify(stored_hash or DUMMY_HASH, password) and stored_hash is not None
+                return (
+                    hasher.verify(stored_hash or DUMMY_HASH, password)
+                    and stored_hash is not None
+                )
             except VerifyMismatchError:
                 return False
             except (InvalidHashError, VerificationError):

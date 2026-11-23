@@ -16,11 +16,17 @@ def identity(request: Request) -> IdentityService:
 
 def validate_origin(request: Request) -> None:
     origin = request.headers.get("origin")
-    if origin is not None and origin not in request.app.state.configuration.allowed_origins:
+    if (
+        origin is not None
+        and origin not in request.app.state.configuration.allowed_origins
+    ):
         raise AccessError(403, "origin_not_allowed")
 
 
-async def principal(request: Request, csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None) -> Principal:
+async def principal(
+    request: Request,
+    csrf_token: Annotated[str | None, Header(alias="X-CSRF-Token")] = None,
+) -> Principal:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         raise AccessError(401, "authentication_required")
@@ -38,15 +44,25 @@ User = Annotated[Principal, Depends(principal)]
 
 def set_session(request: Request, response: Response, tokens: tuple[str, str]) -> dict:
     secure = request.app.state.configuration.app_environment == "production"
-    for name, value, http_only in ((SESSION_COOKIE, tokens[0], True), (CSRF_COOKIE, tokens[1], False)):
+    for name, value, http_only in (
+        (SESSION_COOKIE, tokens[0], True),
+        (CSRF_COOKIE, tokens[1], False),
+    ):
         response.set_cookie(
-            name, value, httponly=http_only, secure=secure, samesite="strict",
-            max_age=request.app.state.configuration.session_hours * 3600, path="/",
+            name,
+            value,
+            httponly=http_only,
+            secure=secure,
+            samesite="strict",
+            max_age=request.app.state.configuration.session_hours * 3600,
+            path="/",
         )
     return {"status": "authenticated", "csrf_token": tokens[1]}
 
 
-async def public_throttle(request: Request, operation: str, account: str | None = None) -> IdentityService:
+async def public_throttle(
+    request: Request, operation: str, account: str | None = None
+) -> IdentityService:
     validate_origin(request)
     service = identity(request)
     client_key = RequestRateLimiter.client_key(

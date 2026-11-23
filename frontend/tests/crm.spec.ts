@@ -2,19 +2,51 @@ import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { homeFor, type Identity } from "../lib/crm";
 
-test("invited member can skip optional profile details and edit their signed-in name", async ({ page }) => {
+test("invited member can skip optional profile details and edit their signed-in name", async ({
+  page,
+}) => {
   let signedIn = false;
-  let profile = { display_name: "Invited Agent", email: "agent@example.com", phone: null as string | null, job_title: null as string | null };
-  await page.route("**/api/v1/**", async route => {
+  let profile = {
+    display_name: "Invited Agent",
+    email: "agent@example.com",
+    phone: null as string | null,
+    job_title: null as string | null,
+  };
+  await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
     if (path === "/auth/accept-invite") {
       signedIn = true;
       return route.fulfill({ json: { status: "authenticated" } });
     }
-    if (!signedIn) return route.fulfill({ status: 401, json: { code: "authentication_required" } });
-    if (path === "/auth/me") return route.fulfill({ json: { organization_id: "org", membership_id: "member", user_id: "user", display_name: profile.display_name, is_owner: false, permissions: [], data_scope: "own", landing_page: "/account" } });
-    if (path === "/organizations/me") return route.fulfill({ json: { id: "org", slug: "qa", name: "QA Workspace", timezone: "Asia/Kolkata", status: "active" } });
+    if (!signedIn)
+      return route.fulfill({
+        status: 401,
+        json: { code: "authentication_required" },
+      });
+    if (path === "/auth/me")
+      return route.fulfill({
+        json: {
+          organization_id: "org",
+          membership_id: "member",
+          user_id: "user",
+          display_name: profile.display_name,
+          is_owner: false,
+          permissions: [],
+          data_scope: "own",
+          landing_page: "/account",
+        },
+      });
+    if (path === "/organizations/me")
+      return route.fulfill({
+        json: {
+          id: "org",
+          slug: "qa",
+          name: "QA Workspace",
+          timezone: "Asia/Kolkata",
+          status: "active",
+        },
+      });
     if (path === "/auth/profile" && request.method() === "PUT") {
       profile = { ...profile, ...request.postDataJSON() };
       return route.fulfill({ status: 204 });
@@ -38,35 +70,105 @@ test("invited member can skip optional profile details and edit their signed-in 
   await page.getByRole("button", { name: "Save profile" }).click();
   await expect(accountMenu).toContainText("Updated Agent");
   await page.reload();
-  await expect(page.getByLabel("Job title (optional)")).toHaveValue("Sales specialist");
+  await expect(page.getByLabel("Job title (optional)")).toHaveValue(
+    "Sales specialist",
+  );
 });
 
-test("lead table sorts across pages and changes page size", async ({ page }) => {
+test("lead table sorts across pages and changes page size", async ({
+  page,
+}) => {
   const now = new Date().toISOString();
   const leads = Array.from({ length: 65 }, (_, index) => ({
-    id: String(index), name: `Buyer ${String(64 - index).padStart(3, "0")}`, company: "Example", phone: "123456", email: "qa@example.com", city: "", state: "", address: "", product: "", enquiry: "", source_provider: "manual", source_record_id: null, status_id: "new", status: "New", status_color: "#2563eb", integration_id: null, source_account_name: null, status_changed_at: now, assigned_membership_id: "member", assignee: "QA", team_id: null, tags: [], custom_fields: {}, next_follow_up_at: null, archived_at: null, row_version: 1, received_at: now, updated_at: now, pii_redacted: false,
+    id: String(index),
+    name: `Buyer ${String(64 - index).padStart(3, "0")}`,
+    company: "Example",
+    phone: "123456",
+    email: "qa@example.com",
+    city: "",
+    state: "",
+    address: "",
+    product: "",
+    enquiry: "",
+    source_provider: "manual",
+    source_record_id: null,
+    status_id: "new",
+    status: "New",
+    status_color: "#2563eb",
+    integration_id: null,
+    source_account_name: null,
+    status_changed_at: now,
+    assigned_membership_id: "member",
+    assignee: "QA",
+    team_id: null,
+    tags: [],
+    custom_fields: {},
+    next_follow_up_at: null,
+    archived_at: null,
+    row_version: 1,
+    received_at: now,
+    updated_at: now,
+    pii_redacted: false,
   }));
   const requests: URL[] = [];
-  await page.route("**/api/v1/**", async route => {
+  await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace("/api/v1", "");
-    if (path === "/auth/me") return route.fulfill({ json: { organization_id: "org", membership_id: "member", user_id: "user", is_owner: true, permissions: ["leads.view", "leads.pii.view"], data_scope: "all", landing_page: "/leads" } });
-    if (path === "/organizations/me") return route.fulfill({ json: { id: "org", slug: "qa", name: "QA", timezone: "Asia/Kolkata", status: "active" } });
-    if (path === "/leads/options") return route.fulfill({ json: { statuses: [], custom_fields: [], sources: [], accounts: [] } });
-    if (path === "/lead-table-preferences") return route.fulfill({ json: { columns: ["name", "status"] } });
+    if (path === "/auth/me")
+      return route.fulfill({
+        json: {
+          organization_id: "org",
+          membership_id: "member",
+          user_id: "user",
+          is_owner: true,
+          permissions: ["leads.view", "leads.pii.view"],
+          data_scope: "all",
+          landing_page: "/leads",
+        },
+      });
+    if (path === "/organizations/me")
+      return route.fulfill({
+        json: {
+          id: "org",
+          slug: "qa",
+          name: "QA",
+          timezone: "Asia/Kolkata",
+          status: "active",
+        },
+      });
+    if (path === "/leads/options")
+      return route.fulfill({
+        json: { statuses: [], custom_fields: [], sources: [], accounts: [] },
+      });
+    if (path === "/lead-table-preferences")
+      return route.fulfill({ json: { columns: ["name", "status"] } });
     if (path === "/leads") {
       requests.push(url);
       const size = Number(url.searchParams.get("limit") || 25);
       const offset = Number(url.searchParams.get("after") || 0);
       const byName = url.searchParams.get("sort_by") === "name";
       const descending = url.searchParams.get("sort_dir") === "desc";
-      const ordered = [...leads].sort((first, second) => (byName ? first.name.localeCompare(second.name) : Number(first.id) - Number(second.id)) * (descending ? -1 : 1));
-      return route.fulfill({ json: { data: ordered.slice(offset, offset + size), next_cursor: offset + size < ordered.length ? String(offset + size) : null, total: offset ? null : ordered.length } });
+      const ordered = [...leads].sort(
+        (first, second) =>
+          (byName
+            ? first.name.localeCompare(second.name)
+            : Number(first.id) - Number(second.id)) * (descending ? -1 : 1),
+      );
+      return route.fulfill({
+        json: {
+          data: ordered.slice(offset, offset + size),
+          next_cursor:
+            offset + size < ordered.length ? String(offset + size) : null,
+          total: offset ? null : ordered.length,
+        },
+      });
     }
     return route.fulfill({ json: { data: [], next_cursor: null } });
   });
   await page.goto("/leads");
-  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(25);
+  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(
+    25,
+  );
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator(".lead-index").first()).toHaveText("26");
   await page.getByRole("button", { name: "Sort by Name" }).click();
@@ -74,33 +176,75 @@ test("lead table sorts across pages and changes page size", async ({ page }) => 
   await expect(page.locator(".lead-index").first()).toHaveText("1");
   expect(requests.at(-1)?.searchParams.has("after")).toBeFalsy();
   await page.getByLabel("Rows per page").selectOption("50");
-  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(50);
+  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(
+    50,
+  );
   await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page.locator(".lead-index").first()).toHaveText("51");
-  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(15);
+  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(
+    15,
+  );
   await page.getByRole("button", { name: "Sort by Name" }).click();
   await expect(page.locator(".lead-name").first()).toHaveText("Buyer 064");
   await expect(page.locator(".lead-index").first()).toHaveText("1");
   await page.getByLabel("Rows per page").selectOption("100");
-  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(65);
-  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
+  await expect(page.getByRole("row").filter({ hasText: "Buyer" })).toHaveCount(
+    65,
+  );
+  await expect(
+    page.getByRole("button", { name: "Next", exact: true }),
+  ).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByLabel("Rows per page")).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBeTruthy();
 });
 
-test("service failures hide technical details on lead pages", async ({ page }) => {
+test("service failures hide technical details on lead pages", async ({
+  page,
+}) => {
   let failure: "database" | "invalid" | "network" = "database";
-  await page.route("**/api/v1/**", async route => {
+  await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
-    if (path === "/auth/me") return route.fulfill({ json: { organization_id: "org", membership_id: "member", user_id: "user", is_owner: true, permissions: ["leads.view"], data_scope: "all", landing_page: "/leads" } });
-    if (path === "/organizations/me") return route.fulfill({ json: { id: "org", slug: "qa", name: "QA", timezone: "Asia/Kolkata", status: "active" } });
-    if (path === "/leads/options") return route.fulfill({ json: { statuses: [], custom_fields: [], sources: [], accounts: [] } });
-    if (path === "/lead-table-preferences") return route.fulfill({ json: { columns: ["name", "status"] } });
+    if (path === "/auth/me")
+      return route.fulfill({
+        json: {
+          organization_id: "org",
+          membership_id: "member",
+          user_id: "user",
+          is_owner: true,
+          permissions: ["leads.view"],
+          data_scope: "all",
+          landing_page: "/leads",
+        },
+      });
+    if (path === "/organizations/me")
+      return route.fulfill({
+        json: {
+          id: "org",
+          slug: "qa",
+          name: "QA",
+          timezone: "Asia/Kolkata",
+          status: "active",
+        },
+      });
+    if (path === "/leads/options")
+      return route.fulfill({
+        json: { statuses: [], custom_fields: [], sources: [], accounts: [] },
+      });
+    if (path === "/lead-table-preferences")
+      return route.fulfill({ json: { columns: ["name", "status"] } });
     if (path === "/leads" || path === "/leads/qa") {
       if (failure === "network") return route.abort("failed");
-      if (failure === "invalid") return route.fulfill({ status: 502, body: "Technical backend detail" });
-      return route.fulfill({ status: 503, json: { code: "database_unavailable" } });
+      if (failure === "invalid")
+        return route.fulfill({ status: 502, body: "Technical backend detail" });
+      return route.fulfill({
+        status: 503,
+        json: { code: "database_unavailable" },
+      });
     }
     return route.fulfill({ json: { data: [] } });
   });
@@ -108,27 +252,75 @@ test("service failures hide technical details on lead pages", async ({ page }) =
     failure = current;
     for (const path of ["/leads", "/leads/qa"]) {
       await page.goto(path);
-      await expect(page.getByRole("alert").filter({ hasText: "Service is not available right now. Please try again later." })).toBeVisible();
-      await expect(page.locator("body")).not.toContainText("Technical backend detail");
-      await expect(page.locator("body")).not.toContainText("The database is unavailable");
+      await expect(
+        page
+          .getByRole("alert")
+          .filter({
+            hasText:
+              "Service is not available right now. Please try again later.",
+          }),
+      ).toBeVisible();
+      await expect(page.locator("body")).not.toContainText(
+        "Technical backend detail",
+      );
+      await expect(page.locator("body")).not.toContainText(
+        "The database is unavailable",
+      );
     }
   }
 });
 
-test("lead statuses refresh after creation and show follow-up requirements", async ({ page }) => {
+test("lead statuses refresh after creation and show follow-up requirements", async ({
+  page,
+}) => {
   const statuses: Record<string, unknown>[] = [];
   let savedRules: unknown = null;
-  await page.route("**/api/v1/**", async route => {
+  await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
     let body: unknown = {};
     let status = 200;
-    if (path === "/auth/me") body = { organization_id: "org", membership_id: "member", user_id: "user", is_owner: true, permissions: ["settings.view", "settings.manage", "assignment_rules.manage"], data_scope: "all", landing_page: "/settings" };
-    else if (path === "/organizations/me") body = { id: "org", slug: "qa", name: "QA", timezone: "Asia/Kolkata", status: "active" };
-    else if (path === "/lead-status-options") body = { members: [], roles: [], custom_fields: [] };
+    if (path === "/auth/me")
+      body = {
+        organization_id: "org",
+        membership_id: "member",
+        user_id: "user",
+        is_owner: true,
+        permissions: [
+          "settings.view",
+          "settings.manage",
+          "assignment_rules.manage",
+        ],
+        data_scope: "all",
+        landing_page: "/settings",
+      };
+    else if (path === "/organizations/me")
+      body = {
+        id: "org",
+        slug: "qa",
+        name: "QA",
+        timezone: "Asia/Kolkata",
+        status: "active",
+      };
+    else if (path === "/lead-status-options")
+      body = { members: [], roles: [], custom_fields: [] };
     else if (path === "/lead-statuses" && request.method() === "POST") {
       const input = request.postDataJSON();
-      statuses.push({ id: String(statuses.length + 1), name: input.name, type: input.category, color: input.color, position: input.position, is_active: true, is_system: false, is_default: false, required_fields: [], tag_on_entry: null, auto_assign: false, member_ids: [], role_ids: [] });
+      statuses.push({
+        id: String(statuses.length + 1),
+        name: input.name,
+        type: input.category,
+        color: input.color,
+        position: input.position,
+        is_active: true,
+        is_system: false,
+        is_default: false,
+        required_fields: [],
+        tag_on_entry: null,
+        auto_assign: false,
+        member_ids: [],
+        role_ids: [],
+      });
       body = { id: statuses[statuses.length - 1].id };
       status = 201;
     } else if (path.endsWith("/rules") && request.method() === "PUT") {
@@ -143,118 +335,357 @@ test("lead statuses refresh after creation and show follow-up requirements", asy
   await form.locator('select[name="category"]').selectOption("working");
   await form.getByLabel("Require follow-up date & time").check();
   await form.getByRole("button", { name: "Add status" }).click();
-  const stage = page.locator(".lead-status-config summary").filter({ hasText: "Needs meeting" });
+  const stage = page
+    .locator(".lead-status-config summary")
+    .filter({ hasText: "Needs meeting" });
   await expect(stage).toContainText("Follow-up date & time required");
   await expect(form.getByLabel("Name", { exact: true })).toHaveValue("");
   expect(savedRules).toEqual({ required_fields: ["next_follow_up_at"] });
   await stage.click();
-  await expect(page.getByLabel("Follow-up date & time", { exact: true })).toBeChecked();
+  await expect(
+    page.getByLabel("Follow-up date & time", { exact: true }),
+  ).toBeChecked();
   await form.getByLabel("Name", { exact: true }).fill("Waiting on buyer");
   await form.locator('select[name="category"]').selectOption("pending");
   await form.getByRole("button", { name: "Add status" }).click();
-  const pending = page.locator(".lead-status-config").filter({ hasText: "Waiting on buyer" });
-  await expect(pending.locator("summary")).toContainText("Follow-up date & time required");
+  const pending = page
+    .locator(".lead-status-config")
+    .filter({ hasText: "Waiting on buyer" });
+  await expect(pending.locator("summary")).toContainText(
+    "Follow-up date & time required",
+  );
   await pending.locator("summary").click();
-  await expect(pending.getByLabel("Follow-up date & time", { exact: true })).toBeChecked();
-  await expect(pending.getByLabel("Follow-up date & time", { exact: true })).toBeDisabled();
+  await expect(
+    pending.getByLabel("Follow-up date & time", { exact: true }),
+  ).toBeChecked();
+  await expect(
+    pending.getByLabel("Follow-up date & time", { exact: true }),
+  ).toBeDisabled();
 });
 
-test("lead dashboard shows outcomes, repeat enquiries, date filters and responsive charts", async ({ page }, testInfo) => {
+test("lead dashboard shows outcomes, repeat enquiries, date filters and responsive charts", async ({
+  page,
+}, testInfo) => {
   const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
+  page.on("pageerror", (error) => errors.push(error.message));
   const organizationId = randomUUID();
   const membershipId = randomUUID();
   const today = new Date().toISOString().slice(0, 10);
   let restricted = false;
   let fail = false;
   let manyStatuses = false;
-  await page.route("**/api/v1/**", async route => {
+  await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace("/api/v1", "");
     let body: unknown = {};
-    if (path === "/auth/me") body = { organization_id: organizationId, membership_id: membershipId, user_id: randomUUID(), is_owner: !restricted, permissions: restricted ? ["dashboard.view"] : ["dashboard.view", "leads.view", "leads.create", "reports.view"], data_scope: restricted ? "own" : "all", landing_page: "/" };
-    if (path === "/organizations/me") body = { id: organizationId, name: "Dashboard test workspace", timezone: "Asia/Kolkata", slug: "dashboard-test" };
+    if (path === "/auth/me")
+      body = {
+        organization_id: organizationId,
+        membership_id: membershipId,
+        user_id: randomUUID(),
+        is_owner: !restricted,
+        permissions: restricted
+          ? ["dashboard.view"]
+          : ["dashboard.view", "leads.view", "leads.create", "reports.view"],
+        data_scope: restricted ? "own" : "all",
+        landing_page: "/",
+      };
+    if (path === "/organizations/me")
+      body = {
+        id: organizationId,
+        name: "Dashboard test workspace",
+        timezone: "Asia/Kolkata",
+        slug: "dashboard-test",
+      };
     if (path === "/dashboard") {
-      if (fail) return route.fulfill({ status: 500, json: { code: "internal_error" } });
+      if (fail)
+        return route.fulfill({ status: 500, json: { code: "internal_error" } });
       const empty = url.searchParams.has("start");
-      body = { total: empty ? 0 : 100, today: empty ? 0 : 8, converted: empty ? 0 : 25, lost: empty ? 0 : 15, open: empty ? 0 : 60, overdue: empty ? 0 : 10, upcoming: empty ? 0 : 20, unscheduled: empty ? 0 : 30, unassigned: empty ? 0 : 12, repeat_leads: empty ? 0 : 18, repeat_contacts: empty ? 0 : 7, timezone: "Asia/Kolkata", recent: [],
-        period: { received: empty ? 0 : 100, converted: empty ? 0 : 25, lost: empty ? 0 : 15, previous_received: empty ? 0 : 80, previous_converted: empty ? 0 : 16, previous_lost: empty ? 0 : 12, start: today, end: today, previous_start: today, previous_end: today },
-        quality: { no_contact: empty ? 0 : 14, no_city: empty ? 0 : 22, never_updated: 0 },
-        aging: { days_0_3: empty ? 0 : 10, days_4_7: empty ? 0 : 8, days_8_14: empty ? 0 : 12, days_15_30: empty ? 0 : 10, days_over_30: empty ? 0 : 20, unchanged_7_days: empty ? 0 : 17 },
-        update_speed: { updated: empty ? 0 : 40, average_days: empty ? null : 2.4, median_days: empty ? null : 1.1 },
-        outcomes: { converted_leads: empty ? 0 : 6, lost_leads: empty ? 0 : 4, conversion_events: empty ? 0 : 7, loss_events: empty ? 0 : 5 },
-        stage_activity: empty ? [] : [{ name: "Contacted", leads: 22, transitions: 27 }, { name: "Qualified", leads: 12, transitions: 14 }],
-        statuses: empty ? [] : [{ id: "won", name: "Converted", category: "won", color: "#09856d", count: 25 }, { id: "lost", name: "Cancelled", category: "lost", color: "#d65064", count: 15 }, { id: "new", name: "New", category: "new", color: "#3586c9", count: 60 }, ...(manyStatuses ? Array.from({ length: 6 }, (_, index) => ({ id: `stage-${index}`, name: `Stage ${index}`, category: "working", color: "#64748b", count: 0 })) : [])],
-        sources: empty ? [] : [{ name: "manual", count: 100, converted: 25, lost: 15 }],
-        people: empty ? [] : [{ id: membershipId, name: "Sales agent", total: 100, converted: 25, lost: 15, open: 60, overdue: 10 }],
-        trend: Array.from({ length: 30 }, (_, index) => { const day = new Date(`${today}T12:00:00Z`); day.setUTCDate(day.getUTCDate() - 29 + index); return { day: day.toISOString().slice(0, 10), received: empty ? 0 : index % 8 + 1, converted: empty ? 0 : index % 3, won_events: empty ? 0 : index % 4, lost_events: empty ? 0 : index % 5 }; }),
+      body = {
+        total: empty ? 0 : 100,
+        today: empty ? 0 : 8,
+        converted: empty ? 0 : 25,
+        lost: empty ? 0 : 15,
+        open: empty ? 0 : 60,
+        overdue: empty ? 0 : 10,
+        upcoming: empty ? 0 : 20,
+        unscheduled: empty ? 0 : 30,
+        unassigned: empty ? 0 : 12,
+        repeat_leads: empty ? 0 : 18,
+        repeat_contacts: empty ? 0 : 7,
+        timezone: "Asia/Kolkata",
+        recent: [],
+        period: {
+          received: empty ? 0 : 100,
+          converted: empty ? 0 : 25,
+          lost: empty ? 0 : 15,
+          previous_received: empty ? 0 : 80,
+          previous_converted: empty ? 0 : 16,
+          previous_lost: empty ? 0 : 12,
+          start: today,
+          end: today,
+          previous_start: today,
+          previous_end: today,
+        },
+        quality: {
+          no_contact: empty ? 0 : 14,
+          no_city: empty ? 0 : 22,
+          never_updated: 0,
+        },
+        aging: {
+          days_0_3: empty ? 0 : 10,
+          days_4_7: empty ? 0 : 8,
+          days_8_14: empty ? 0 : 12,
+          days_15_30: empty ? 0 : 10,
+          days_over_30: empty ? 0 : 20,
+          unchanged_7_days: empty ? 0 : 17,
+        },
+        update_speed: {
+          updated: empty ? 0 : 40,
+          average_days: empty ? null : 2.4,
+          median_days: empty ? null : 1.1,
+        },
+        outcomes: {
+          converted_leads: empty ? 0 : 6,
+          lost_leads: empty ? 0 : 4,
+          conversion_events: empty ? 0 : 7,
+          loss_events: empty ? 0 : 5,
+        },
+        stage_activity: empty
+          ? []
+          : [
+              { name: "Contacted", leads: 22, transitions: 27 },
+              { name: "Qualified", leads: 12, transitions: 14 },
+            ],
+        statuses: empty
+          ? []
+          : [
+              {
+                id: "won",
+                name: "Converted",
+                category: "won",
+                color: "#09856d",
+                count: 25,
+              },
+              {
+                id: "lost",
+                name: "Cancelled",
+                category: "lost",
+                color: "#d65064",
+                count: 15,
+              },
+              {
+                id: "new",
+                name: "New",
+                category: "new",
+                color: "#3586c9",
+                count: 60,
+              },
+              ...(manyStatuses
+                ? Array.from({ length: 6 }, (_, index) => ({
+                    id: `stage-${index}`,
+                    name: `Stage ${index}`,
+                    category: "working",
+                    color: "#64748b",
+                    count: 0,
+                  }))
+                : []),
+            ],
+        sources: empty
+          ? []
+          : [{ name: "manual", count: 100, converted: 25, lost: 15 }],
+        people: empty
+          ? []
+          : [
+              {
+                id: membershipId,
+                name: "Sales agent",
+                total: 100,
+                converted: 25,
+                lost: 15,
+                open: 60,
+                overdue: 10,
+              },
+            ],
+        trend: Array.from({ length: 30 }, (_, index) => {
+          const day = new Date(`${today}T12:00:00Z`);
+          day.setUTCDate(day.getUTCDate() - 29 + index);
+          return {
+            day: day.toISOString().slice(0, 10),
+            received: empty ? 0 : (index % 8) + 1,
+            converted: empty ? 0 : index % 3,
+            won_events: empty ? 0 : index % 4,
+            lost_events: empty ? 0 : index % 5,
+          };
+        }),
       };
     }
     await route.fulfill({ json: body });
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Pipeline health" })).toBeVisible();
-  const chartsTop = await page.locator(".dashboard-analysis").evaluate(element => element.getBoundingClientRect().top);
-  const insightsTop = await page.locator(".lead-dashboard .analytics-section").filter({ has: page.getByRole("heading", { name: "What needs attention" }) }).evaluate(element => element.getBoundingClientRect().top);
+  await expect(
+    page.getByRole("heading", { name: "Pipeline health" }),
+  ).toBeVisible();
+  const chartsTop = await page
+    .locator(".dashboard-analysis")
+    .evaluate((element) => element.getBoundingClientRect().top);
+  const insightsTop = await page
+    .locator(".lead-dashboard .analytics-section")
+    .filter({
+      has: page.getByRole("heading", { name: "What needs attention" }),
+    })
+    .evaluate((element) => element.getBoundingClientRect().top);
   expect(chartsTop).toBeLessThan(insightsTop);
   expect(chartsTop).toBeLessThan(1000);
-    await expect(page.locator(".dashboard-workload-grid").getByRole("heading", { name: "Open pipeline age" })).toBeVisible();
-    const pipelineCard = page.locator(".dashboard-analysis > .analytics-section").first();
-    const pipelineBottom = await pipelineCard.evaluate(element => element.getBoundingClientRect().bottom);
-    const lastStatusBottom = await pipelineCard.locator(".status-distribution-row").last().evaluate(element => element.getBoundingClientRect().bottom);
+  await expect(
+    page
+      .locator(".dashboard-workload-grid")
+      .getByRole("heading", { name: "Open pipeline age" }),
+  ).toBeVisible();
+  const pipelineCard = page
+    .locator(".dashboard-analysis > .analytics-section")
+    .first();
+  const pipelineBottom = await pipelineCard.evaluate(
+    (element) => element.getBoundingClientRect().bottom,
+  );
+  const lastStatusBottom = await pipelineCard
+    .locator(".status-distribution-row")
+    .last()
+    .evaluate((element) => element.getBoundingClientRect().bottom);
   expect(pipelineBottom - lastStatusBottom).toBeLessThanOrEqual(30);
-    const mainRowHeights = await page.locator(".dashboard-analysis > .analytics-section").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
-    expect(Math.abs(mainRowHeights[0] - mainRowHeights[1])).toBeLessThan(140);
-    const workloadHeights = await page.locator(".dashboard-workload-grid > .analytics-section").evaluateAll(elements => elements.map(element => element.getBoundingClientRect().height));
-    expect(Math.abs(workloadHeights[0] - workloadHeights[1])).toBeLessThan(200);
-  const overdueValue = page.locator(".followup-breakdown > div").first().locator(".followup-value");
+  const mainRowHeights = await page
+    .locator(".dashboard-analysis > .analytics-section")
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().height),
+    );
+  expect(Math.abs(mainRowHeights[0] - mainRowHeights[1])).toBeLessThan(140);
+  const workloadHeights = await page
+    .locator(".dashboard-workload-grid > .analytics-section")
+    .evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().height),
+    );
+  expect(Math.abs(workloadHeights[0] - workloadHeights[1])).toBeLessThan(200);
+  const overdueValue = page
+    .locator(".followup-breakdown > div")
+    .first()
+    .locator(".followup-value");
   await expect(overdueValue.locator("strong")).toHaveText("10");
   await expect(overdueValue.locator(".muted")).toHaveText("16.7%");
-  await expect(page.getByRole("heading", { name: "What needs attention" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Period performance" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Lead handling quality" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Pipeline movement" })).toBeVisible();
-  await expect(page.locator(".movement-summary")).toContainText("7 won transitions");
-  await expect(page.locator(".dashboard-metrics .ui-stat-value")).toHaveText(["100", "25", "60", "15", "18", "10"]);
-  await expect(page.getByRole("img", { name: "25 converted, 15 lost or cancelled, 60 open" })).toContainText("25.0%");
+  await expect(
+    page.getByRole("heading", { name: "What needs attention" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Period performance" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lead handling quality" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Pipeline movement" }),
+  ).toBeVisible();
+  await expect(page.locator(".movement-summary")).toContainText(
+    "7 won transitions",
+  );
+  await expect(page.locator(".dashboard-metrics .ui-stat-value")).toHaveText([
+    "100",
+    "25",
+    "60",
+    "15",
+    "18",
+    "10",
+  ]);
+  await expect(
+    page.getByRole("img", {
+      name: "25 converted, 15 lost or cancelled, 60 open",
+    }),
+  ).toContainText("25.0%");
   await expect(page.locator(".chart-column")).toHaveCount(30);
   await page.locator(".chart-column").last().focus();
   await expect(page.getByRole("tooltip")).toContainText("received");
   await page.keyboard.press("Escape");
-  await expect(page.locator(".status-distribution").getByRole("link", { name: "Converted", exact: true })).toHaveAttribute("href", "/leads?status_id=won");
-  await page.screenshot({ path: testInfo.outputPath("dashboard-desktop.png"), fullPage: true });
-  await expect(page.locator(".dashboard-header").getByRole("link")).toHaveCount(0);
+  await expect(
+    page
+      .locator(".status-distribution")
+      .getByRole("link", { name: "Converted", exact: true }),
+  ).toHaveAttribute("href", "/leads?status_id=won");
+  await page.screenshot({
+    path: testInfo.outputPath("dashboard-desktop.png"),
+    fullPage: true,
+  });
+  await expect(page.locator(".dashboard-header").getByRole("link")).toHaveCount(
+    0,
+  );
   manyStatuses = true;
-  await page.getByRole("button", { name: "Refresh dashboard", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Refresh dashboard", exact: true })
+    .click();
   const statusList = page.getByRole("region", { name: "Leads by status" });
   await expect(statusList.locator(".status-distribution-row")).toHaveCount(9);
-  await expect(page.locator(".status-distribution").getByRole("button", { name: "More below" })).toBeVisible();
+  await expect(
+    page
+      .locator(".status-distribution")
+      .getByRole("button", { name: "More below" }),
+  ).toBeVisible();
   await statusList.focus();
   await page.keyboard.press("End");
-  await expect(statusList.getByRole("link", { name: "Stage 5", exact: true })).toBeInViewport();
+  await expect(
+    statusList.getByRole("link", { name: "Stage 5", exact: true }),
+  ).toBeInViewport();
   manyStatuses = false;
-  await page.getByRole("button", { name: "Refresh dashboard", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Refresh dashboard", exact: true })
+    .click();
   await expect(statusList.locator(".status-distribution-row")).toHaveCount(3);
   await page.getByRole("button", { name: "Date range", exact: true }).click();
-  await expect(page.getByText("Reporting period", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Reporting period", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "7 days", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "No leads in this selection" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "No leads in this selection" }),
+  ).toBeVisible();
   await expect(page.locator(".lead-dashboard")).not.toContainText("NaN");
   await page.getByRole("button", { name: "All time", exact: true }).click();
-  await expect(page.locator(".dashboard-metrics .ui-stat-value").first()).toHaveText("100");
+  await expect(
+    page.locator(".dashboard-metrics .ui-stat-value").first(),
+  ).toHaveText("100");
   for (const width of [390, 768]) {
     await page.setViewportSize({ width, height: 844 });
-    await page.screenshot({ path: testInfo.outputPath(`dashboard-${width}.png`), fullPage: true });
-    const overflow = await page.evaluate(() => ({ width: window.innerWidth, scroll: document.documentElement.scrollWidth, elements: Array.from(document.querySelectorAll("body *")).filter(element => element.getBoundingClientRect().right > window.innerWidth + 1 && !element.closest(".analytics-table-scroll")).slice(0, 12).map(element => ({ tag: element.tagName, class: element.className, right: element.getBoundingClientRect().right })) }));
-    expect(overflow.scroll, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.width);
+    await page.screenshot({
+      path: testInfo.outputPath(`dashboard-${width}.png`),
+      fullPage: true,
+    });
+    const overflow = await page.evaluate(() => ({
+      width: window.innerWidth,
+      scroll: document.documentElement.scrollWidth,
+      elements: Array.from(document.querySelectorAll("body *"))
+        .filter(
+          (element) =>
+            element.getBoundingClientRect().right > window.innerWidth + 1 &&
+            !element.closest(".analytics-table-scroll"),
+        )
+        .slice(0, 12)
+        .map((element) => ({
+          tag: element.tagName,
+          class: element.className,
+          right: element.getBoundingClientRect().right,
+        })),
+    }));
+    expect(overflow.scroll, JSON.stringify(overflow)).toBeLessThanOrEqual(
+      overflow.width,
+    );
   }
   restricted = true;
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Your lead performance" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Your lead performance" }),
+  ).toBeVisible();
   await expect(page.locator(".lead-dashboard a")).toHaveCount(0);
   fail = true;
-  await page.getByRole("button", { name: "Refresh dashboard", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Refresh dashboard", exact: true })
+    .click();
   await expect(page.locator(".lead-dashboard [role=alert]")).toBeVisible();
   expect(errors).toEqual([]);
 });

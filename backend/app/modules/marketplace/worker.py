@@ -45,7 +45,17 @@ FETCH_TIMEOUT_SECONDS = 300
 MAX_CONCURRENT_RUNS = 8
 ADAPTER_CODES = tuple(adapters.REGISTRY)
 ADAPTERS = "(" + ",".join(f"'{code}'" for code in ADAPTER_CODES) + ")"
-LEAD_SOURCE_FIELDS = ("name", "company", "phone", "email", "city", "state", "address", "product", "enquiry")
+LEAD_SOURCE_FIELDS = (
+    "name",
+    "company",
+    "phone",
+    "email",
+    "city",
+    "state",
+    "address",
+    "product",
+    "enquiry",
+)
 # A refetch fills blank source fields only, so manual edits survive and the assignee, status and receive time never move.
 LEAD_UPSERT = (
     "INSERT INTO crm.leads AS existing(org_id,integration_id,source_record_id,source_provider,created_by,status_id,"
@@ -570,7 +580,9 @@ async def finish(
                         if key != "source_time"
                     }
                     content = {
-                        key: value for key, value in lead.items() if key != "source_time"
+                        key: value
+                        for key, value in lead.items()
+                        if key != "source_time"
                     }
                     values.update(
                         org=org,
@@ -591,9 +603,7 @@ async def finish(
                             json.dumps(content, sort_keys=True, default=str).encode()
                         ).hexdigest(),
                     )
-                    row = (
-                        await connection.execute(text(LEAD_UPSERT), values)
-                    ).one()
+                    row = (await connection.execute(text(LEAD_UPSERT), values)).one()
                     if row.created:
                         accepted += 1
                         await audit(

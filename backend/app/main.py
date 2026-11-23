@@ -103,7 +103,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def private_responses(request: Request, call_next):
         supplied_request_id = request.headers.get("X-Request-ID")
         try:
-            request_id = str(UUID(supplied_request_id)) if supplied_request_id else str(uuid4())
+            request_id = (
+                str(UUID(supplied_request_id)) if supplied_request_id else str(uuid4())
+            )
         except ValueError:
             request_id = str(uuid4())
         request.state.request_id = request_id

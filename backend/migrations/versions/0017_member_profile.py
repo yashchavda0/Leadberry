@@ -9,7 +9,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TABLE crm.organization_memberships ADD COLUMN job_title varchar(120)")
+    op.execute(
+        "ALTER TABLE crm.organization_memberships ADD COLUMN job_title varchar(120)"
+    )
 
 
 def downgrade() -> None:

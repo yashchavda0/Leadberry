@@ -932,7 +932,12 @@ async def test_worker_dispatch_is_fair_and_bounded_per_organization(monkeypatch)
         assert await worker.dispatch(
             object(), organizations, object(), object(), running, 4, 2
         )
-        assert claimed == [organizations[0], organizations[1], organizations[2], organizations[0]]
+        assert claimed == [
+            organizations[0],
+            organizations[1],
+            organizations[2],
+            organizations[0],
+        ]
         assert len(running) == 4
     finally:
         release.set()
@@ -1640,7 +1645,9 @@ def test_database_long_pause_moves_missed_range_to_history(marketplace_owner):
     assert history["windows_total"] == 2
 
 
-def test_database_tradeindia_recovers_missed_days_after_worker_returns(marketplace_owner):
+def test_database_tradeindia_recovers_missed_days_after_worker_returns(
+    marketplace_owner,
+):
     import httpx
     from datetime import datetime, timedelta
     from app.modules.marketplace.schedule import IST
@@ -1649,7 +1656,9 @@ def test_database_tradeindia_recovers_missed_days_after_worker_returns(marketpla
         pytest.skip("Requires provisioned crm_worker role")
     client = marketplace_owner
     org = UUID(client.get("/api/v1/auth/me").json()["organization_id"])
-    account = add_account(client, "Trade recovery", f"trade-gap-{uuid4()}", "tradeindia")
+    account = add_account(
+        client, "Trade recovery", f"trade-gap-{uuid4()}", "tradeindia"
+    )
     path = f"/api/v1/marketplace/accounts/{account['id']}"
     requests = []
     yesterday = datetime.now(IST).date() - timedelta(days=1)
@@ -1658,23 +1667,37 @@ def test_database_tradeindia_recovers_missed_days_after_worker_returns(marketpla
         params = dict(request.url.params)
         requests.append(params)
         if params["from_date"] == yesterday.isoformat():
-            return httpx.Response(200, json=[{
-                "rfi_id": "recovered-trade-enquiry",
-                "sender_name": "Recovered enquiry",
-                "generated": int((datetime.now(IST) - timedelta(days=1)).timestamp()),
-            }])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "rfi_id": "recovered-trade-enquiry",
+                        "sender_name": "Recovered enquiry",
+                        "generated": int(
+                            (datetime.now(IST) - timedelta(days=1)).timestamp()
+                        ),
+                    }
+                ],
+            )
         return httpx.Response(200, json=[])
 
     due = "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',next_live_at=now()-interval '1 minute' WHERE org_id=:org"
     assert client.post(f"{path}/test", json={"row_version": 1}).status_code == 200
     assert run_worker(client, org, respond, due)
     account = client.get("/api/v1/marketplace/accounts").json()["data"][0]
-    assert client.post(f"{path}/activate", json={"row_version": account["row_version"]}).status_code == 200
+    assert (
+        client.post(
+            f"{path}/activate", json={"row_version": account["row_version"]}
+        ).status_code
+        == 200
+    )
 
     overdue = due.replace(" WHERE", ",watermark=now()-interval '4 days' WHERE")
     assert run_worker(client, org, respond, overdue)
     assert requests[-1]["from_date"] == datetime.now(IST).date().isoformat()
-    history = client.get("/api/v1/marketplace/accounts").json()["data"][0]["schedule_status"]["history"]
+    history = client.get("/api/v1/marketplace/accounts").json()["data"][0][
+        "schedule_status"
+    ]["history"]
     assert history["kind"] == "gap" and history["windows_total"] == 4
 
     free_slot = "UPDATE crm.marketplace_accounts SET next_allowed_at=now()-interval '1 minute',next_live_at=now()+interval '15 minutes' WHERE org_id=:org"

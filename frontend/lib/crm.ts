@@ -253,15 +253,62 @@ export type Dashboard = {
   repeat_leads: number;
   repeat_contacts: number;
   timezone: string;
-  statuses: { id: string; name: string; color: string; category: string; count: number }[];
+  statuses: {
+    id: string;
+    name: string;
+    color: string;
+    category: string;
+    count: number;
+  }[];
   sources: { name: string; count: number; converted: number; lost: number }[];
-  people: { id: string | null; name: string; total: number; converted: number; lost: number; open: number; overdue: number }[];
-  trend: { day: string; received: number; converted: number; won_events: number; lost_events: number }[];
-  period: { received: number; converted: number; lost: number; previous_received: number; previous_converted: number; previous_lost: number; start: string; end: string; previous_start: string; previous_end: string };
+  people: {
+    id: string | null;
+    name: string;
+    total: number;
+    converted: number;
+    lost: number;
+    open: number;
+    overdue: number;
+  }[];
+  trend: {
+    day: string;
+    received: number;
+    converted: number;
+    won_events: number;
+    lost_events: number;
+  }[];
+  period: {
+    received: number;
+    converted: number;
+    lost: number;
+    previous_received: number;
+    previous_converted: number;
+    previous_lost: number;
+    start: string;
+    end: string;
+    previous_start: string;
+    previous_end: string;
+  };
   quality: { no_contact: number; no_city: number };
-  aging: { days_0_3: number; days_4_7: number; days_8_14: number; days_15_30: number; days_over_30: number; unchanged_7_days: number };
-  update_speed: { updated: number; average_days: number | null; median_days: number | null };
-  outcomes: { converted_leads: number; lost_leads: number; conversion_events: number; loss_events: number };
+  aging: {
+    days_0_3: number;
+    days_4_7: number;
+    days_8_14: number;
+    days_15_30: number;
+    days_over_30: number;
+    unchanged_7_days: number;
+  };
+  update_speed: {
+    updated: number;
+    average_days: number | null;
+    median_days: number | null;
+  };
+  outcomes: {
+    converted_leads: number;
+    lost_leads: number;
+    conversion_events: number;
+    loss_events: number;
+  };
   stage_activity: { name: string; leads: number; transitions: number }[];
   recent: Lead[];
 };
@@ -363,7 +410,8 @@ const messages: Record<string, string> = {
     "More than 50,000 leads match. Narrow the filters (for example a date range) and export again.",
 };
 
-export const marketplaceErrorMessage = (code: string) => marketplaceErrors[code] || code.replaceAll("_", " ");
+export const marketplaceErrorMessage = (code: string) =>
+  marketplaceErrors[code] || code.replaceAll("_", " ");
 
 export const marketplaceErrors: Record<string, string> = {
   provider_credentials_rejected:
@@ -407,15 +455,24 @@ export class ApiError extends Error {
 
 /** True when the server could not be reached or is failing, as opposed to rejecting a request. */
 export function isServiceError(error: unknown): boolean {
-  return error instanceof ApiError && (error.status === 0 || error.status >= 500);
+  return (
+    error instanceof ApiError && (error.status === 0 || error.status >= 500)
+  );
 }
 
-const NETWORK_MESSAGE = "We can't reach the server. Check your internet connection or try again in a moment.";
-const UNAVAILABLE_MESSAGE = "The service is temporarily unavailable. Your data is safe; please try again in a moment.";
-const SERVER_ERROR_MESSAGE = "Something went wrong on our side. Please try again in a moment.";
+const NETWORK_MESSAGE =
+  "We can't reach the server. Check your internet connection or try again in a moment.";
+const UNAVAILABLE_MESSAGE =
+  "The service is temporarily unavailable. Your data is safe; please try again in a moment.";
+const SERVER_ERROR_MESSAGE =
+  "Something went wrong on our side. Please try again in a moment.";
 /** True for the messages produced when the server is unreachable or failing. */
 export function isServiceMessage(message: string): boolean {
-  return message === NETWORK_MESSAGE || message === UNAVAILABLE_MESSAGE || message === SERVER_ERROR_MESSAGE;
+  return (
+    message === NETWORK_MESSAGE ||
+    message === UNAVAILABLE_MESSAGE ||
+    message === SERVER_ERROR_MESSAGE
+  );
 }
 let serviceDown = false;
 function reportService(down: boolean) {
@@ -429,13 +486,18 @@ async function request(url: string, init: RequestInit): Promise<Response> {
   try {
     response = await fetch(url, init);
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error;
     reportService(true);
     throw new ApiError(0, "network_error", NETWORK_MESSAGE);
   }
   if (response.status >= 500) {
     reportService(true);
-    throw new ApiError(response.status, "service_unavailable", response.status === 500 ? SERVER_ERROR_MESSAGE : UNAVAILABLE_MESSAGE);
+    throw new ApiError(
+      response.status,
+      "service_unavailable",
+      response.status === 500 ? SERVER_ERROR_MESSAGE : UNAVAILABLE_MESSAGE,
+    );
   }
   reportService(false);
   return response;

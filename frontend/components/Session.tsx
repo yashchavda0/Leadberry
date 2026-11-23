@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, crm, errorMessage, isServiceError, type Identity, type Organization } from "@/lib/crm";
 import ServiceUnavailable from "./ServiceUnavailable";
+import PageLoader from "./PageLoader";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 
@@ -66,10 +67,10 @@ export default function SessionProvider({ children }: { children: React.ReactNod
   }
   const value: Session = { identity, organization, pending, error, reload, can: permission => Boolean(identity?.permissions.includes(permission)), logout };
   return <Context.Provider value={value}>
-    {isPublic ? children : pending ? <div className="loading-screen" role="status">Loading your workspace...</div> :
+    {isPublic ? children : pending ? <PageLoader label="Loading your workspace..." /> :
       error ? (outage ? <ServiceUnavailable message={error} offline={outage.offline} retrying={retrying} onRetry={() => void retry()} /> : <div className="auth-container"><div className="card"><h1>Workspace unavailable</h1><p role="alert">{error}</p><button className="btn" onClick={() => void reload()}>Retry</button> <Link href="/login">Sign in</Link></div></div>) :
         identity ? <div className="layout"><Sidebar /><div className="workspace"><Topbar /><main className="main">{children}</main></div></div> :
-          <div className="loading-screen">Redirecting to sign in...</div>}
+          <PageLoader label="Redirecting to sign in..." />}
   </Context.Provider>;
 }
 

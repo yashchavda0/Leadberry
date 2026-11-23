@@ -88,11 +88,15 @@ async def invite(body: InviteInput, request: Request, response: Response, user: 
 
 
 @router.get("/memberships/{membership_id}/invitation")
-async def read_invitation(membership_id: UUID, request: Request, response: Response, user: User):
+async def read_invitation(
+    membership_id: UUID, request: Request, response: Response, user: User
+):
     if not user.is_owner:
         raise AccessError(403, "permission_denied")
     response.headers["Cache-Control"] = "no-store"
-    return await recover_invitation(identity(request), user, membership_id, invitation_key(request))
+    return await recover_invitation(
+        identity(request), user, membership_id, invitation_key(request)
+    )
 
 
 @router.delete("/memberships/{membership_id}")

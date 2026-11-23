@@ -176,8 +176,7 @@ async def apply_status_rules(
     )
     category = await connection.scalar(
         text(
-            "SELECT category FROM crm.lead_statuses "
-            "WHERE org_id=:org AND id=:status"
+            "SELECT category FROM crm.lead_statuses " "WHERE org_id=:org AND id=:status"
         ),
         {"org": org_id, "status": status_id},
     )

@@ -152,9 +152,12 @@ def test_process_resources_are_reused_and_closed_once():
         http_client = client.app.state.http_client
         assert engine.pool.size() == 3
         assert engine.pool._recycle == 600
-        assert client.get(
-            "/api/v1/health/live", headers={"X-Request-ID": str(uuid4())}
-        ).headers["Cache-Control"] == "no-store"
+        assert (
+            client.get(
+                "/api/v1/health/live", headers={"X-Request-ID": str(uuid4())}
+            ).headers["Cache-Control"]
+            == "no-store"
+        )
         assert client.app.state.database_engine is engine
         assert client.app.state.http_client is http_client
         assert http_client.is_closed is False

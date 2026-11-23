@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "25393bf9-7fd8-4cef-a293-ec4775c54c26",
+    "_postman_id": "96733a13-9073-490b-81a4-ba03a76c28fa",
     "name": "CRM - All Backend APIs",
     "description": "Generated from the FastAPI OpenAPI schema. Dummy bodies are examples and must be adjusted to valid tenant data before use. Authentication uses the CRM session cookie. Start with Authentication > POST /api/v1/auth/login; Postman retains crm_session automatically and the request script stores csrf_token in csrfToken for later mutating requests.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -490,7 +490,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"display_name\": \"Dummy User\",\n  \"phone\": \"9876543210\"\n}",
+              "raw": "{\n  \"display_name\": \"Dummy User\",\n  \"phone\": \"9876543210\",\n  \"address\": \"123 Example Street\",\n  \"city\": \"Mumbai\",\n  \"state\": \"Maharashtra\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1233,6 +1233,63 @@
                 }
               }
             }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Request completed', function () {",
+                  "  pm.expect(pm.response.code).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/memberships/{membership_id}/invitation - Read Invitation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "dummy",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
+                "type": "text",
+                "disabled": true
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "{{$guid}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/memberships/{{membership_id}}/invitation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "memberships",
+                "{{membership_id}}",
+                "invitation"
+              ],
+              "query": []
+            },
+            "description": ""
           },
           "event": [
             {

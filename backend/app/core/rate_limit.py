@@ -37,7 +37,10 @@ class RequestRateLimiter:
         self._lock = asyncio.Lock()
 
     @staticmethod
-    def client_key(request: Request, trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]) -> str:
+    def client_key(
+        request: Request,
+        trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+    ) -> str:
         remote = request.client.host if request.client else "0.0.0.0"
         try:
             address = ipaddress.ip_address(remote)
@@ -53,7 +56,11 @@ class RequestRateLimiter:
                     pass
         return hashlib.sha256(str(address).encode("ascii")).hexdigest()
 
-    async def allow(self, request: Request, trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]) -> bool:
+    async def allow(
+        self,
+        request: Request,
+        trusted_proxies: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+    ) -> bool:
         key = f"api:{self.client_key(request, trusted_proxies)}"
         if self.coordinated is not None:
             coordinated = await self.coordinated.allow(

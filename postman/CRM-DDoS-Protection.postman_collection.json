@@ -8,8 +8,16 @@
   "variable": [
     { "key": "baseUrl", "value": "http://127.0.0.1:8000", "type": "string" },
     { "key": "apiLimit", "value": "120", "type": "number" },
-    { "key": "dummyOrganization", "value": "security-test-org", "type": "string" },
-    { "key": "dummyEmail", "value": "nonexistent-user@example.com", "type": "string" },
+    {
+      "key": "dummyOrganization",
+      "value": "security-test-org",
+      "type": "string"
+    },
+    {
+      "key": "dummyEmail",
+      "value": "nonexistent-user@example.com",
+      "type": "string"
+    },
     { "key": "dummyPassword", "value": "DummyPassword123!", "type": "string" },
     { "key": "floodIteration", "value": "0", "type": "number" },
     { "key": "loginIteration", "value": "0", "type": "number" },
@@ -25,7 +33,11 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "X-Forwarded-For", "value": "198.51.100.20", "type": "text" }
+              {
+                "key": "X-Forwarded-For",
+                "value": "198.51.100.20",
+                "type": "text"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/v1/health/live",
@@ -58,7 +70,11 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "X-Forwarded-For", "value": "198.51.100.20", "type": "text" },
+              {
+                "key": "X-Forwarded-For",
+                "value": "198.51.100.20",
+                "type": "text"
+              },
               { "key": "X-Request-ID", "value": "{{$guid}}", "type": "text" }
             ],
             "url": {
@@ -105,8 +121,16 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json", "type": "text" },
-              { "key": "X-Forwarded-For", "value": "198.51.100.30", "type": "text" }
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "198.51.100.30",
+                "type": "text"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -155,9 +179,21 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json", "type": "text" },
-              { "key": "X-Forwarded-For", "value": "198.51.100.40", "type": "text" },
-              { "key": "Origin", "value": "http://localhost:3000", "type": "text" }
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "198.51.100.40",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "http://localhost:3000",
+                "type": "text"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -191,9 +227,21 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json", "type": "text" },
-              { "key": "X-Forwarded-For", "value": "198.51.100.40", "type": "text" },
-              { "key": "Origin", "value": "http://localhost:3000", "type": "text" }
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "X-Forwarded-For",
+                "value": "198.51.100.40",
+                "type": "text"
+              },
+              {
+                "key": "Origin",
+                "value": "http://localhost:3000",
+                "type": "text"
+              }
             ],
             "body": {
               "mode": "raw",

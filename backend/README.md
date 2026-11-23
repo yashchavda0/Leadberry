@@ -85,22 +85,22 @@ credential-rate coordination and database uniqueness rather than Redis as its qu
 
 ## Modules and migrations
 
-| Location | Responsibility |
-|---|---|
-| `app/main.py` | Single app factory, lifecycle, middleware, errors, routers and health |
-| `app/core/settings.py` | Validated settings, connection URLs and browser origins |
-| `app/core/database.py` | Bounded engines, tenant transactions and role/schema readiness |
-| `app/core/resources.py` | Process-owned database/HTTP/Redis lifecycle and Redis degradation |
-| `app/core/unit_of_work.py` | Request/job transaction boundary shared by repositories |
-| `app/modules/identity/` | Passwords, sessions, onboarding, invitations, roles and membership access |
-| `app/modules/leads/` | Scoped lead routes; `repository.py` and `service.py` own lead read persistence and application orchestration |
-| `migrations/versions/0001_foundation.py` | Organizations, users, memberships, settings/statuses and tenant invariants |
-| `migrations/versions/0002_identity.py` | Permissions, roles, overrides, sessions/invitations, audit and throttling |
-| `migrations/versions/0003_leads.py` | PostgreSQL leads, teams, indexes and tenant policies |
-| `migrations/versions/0004_role_hierarchy.py` | Tenant-bound reporting roles and membership landing preferences |
-| `migrations/versions/0005_marketplace.py` | Encrypted marketplace accounts, sync runs and rate limits |
-| `migrations/versions/0006_database_grants.py` | Least-privilege table grants for `crm_api`, `crm_auth` and `crm_worker` |
-| `app/modules/marketplace/` | Provider catalog, encrypted account setup, lifecycle APIs and IndiaMART worker |
+| Location                                      | Responsibility                                                                                               |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `app/main.py`                                 | Single app factory, lifecycle, middleware, errors, routers and health                                        |
+| `app/core/settings.py`                        | Validated settings, connection URLs and browser origins                                                      |
+| `app/core/database.py`                        | Bounded engines, tenant transactions and role/schema readiness                                               |
+| `app/core/resources.py`                       | Process-owned database/HTTP/Redis lifecycle and Redis degradation                                            |
+| `app/core/unit_of_work.py`                    | Request/job transaction boundary shared by repositories                                                      |
+| `app/modules/identity/`                       | Passwords, sessions, onboarding, invitations, roles and membership access                                    |
+| `app/modules/leads/`                          | Scoped lead routes; `repository.py` and `service.py` own lead read persistence and application orchestration |
+| `migrations/versions/0001_foundation.py`      | Organizations, users, memberships, settings/statuses and tenant invariants                                   |
+| `migrations/versions/0002_identity.py`        | Permissions, roles, overrides, sessions/invitations, audit and throttling                                    |
+| `migrations/versions/0003_leads.py`           | PostgreSQL leads, teams, indexes and tenant policies                                                         |
+| `migrations/versions/0004_role_hierarchy.py`  | Tenant-bound reporting roles and membership landing preferences                                              |
+| `migrations/versions/0005_marketplace.py`     | Encrypted marketplace accounts, sync runs and rate limits                                                    |
+| `migrations/versions/0006_database_grants.py` | Least-privilege table grants for `crm_api`, `crm_auth` and `crm_worker`                                      |
+| `app/modules/marketplace/`                    | Provider catalog, encrypted account setup, lifecycle APIs and IndiaMART worker                               |
 
 Readiness expects `0006_database_grants` and checks both configured roles. Migrations do not
 run during API startup. Use the migration helper rather than applying the full
@@ -115,17 +115,17 @@ Routes are grouped by business responsibility in both source code and Swagger.
 Different methods for the same resource stay in the same router; they invoke the
 existing business services rather than duplicating authentication or access logic.
 
-| Swagger group | Route file | Use case |
-|---|---|---|
-| Authentication | `app/modules/identity/authentication.py` | Login, invitation acceptance, current identity, session refresh/logout |
-| Organizations | `app/modules/identity/organizations.py` | Onboarding and GET/PUT organization profile |
-| Roles and permissions | `app/modules/identity/role_routes.py` | Permission catalog and GET/POST/PUT role administration |
-| Members and invitations | `app/modules/identity/memberships.py` | Membership access updates and invitation issuance |
-| Leads | `app/modules/leads/routes.py` | Lead lists/options, creation, detail/update and archive/restore |
-| Teams | `app/modules/leads/teams.py` | GET/POST/PUT team management |
-| Dashboard | `app/modules/leads/dashboard.py` | Scoped dashboard statistics and recent leads |
-| Marketplace | `app/modules/marketplace/routes.py` | Catalog/accounts, credential replacement, test/sync, activation/pause/retirement and history |
-| Health | `app/main.py` | Liveness and readiness probes |
+| Swagger group           | Route file                               | Use case                                                                                     |
+| ----------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Authentication          | `app/modules/identity/authentication.py` | Login, invitation acceptance, current identity, session refresh/logout                       |
+| Organizations           | `app/modules/identity/organizations.py`  | Onboarding and GET/PUT organization profile                                                  |
+| Roles and permissions   | `app/modules/identity/role_routes.py`    | Permission catalog and GET/POST/PUT role administration                                      |
+| Members and invitations | `app/modules/identity/memberships.py`    | Membership access updates and invitation issuance                                            |
+| Leads                   | `app/modules/leads/routes.py`            | Lead lists/options, creation, detail/update and archive/restore                              |
+| Teams                   | `app/modules/leads/teams.py`             | GET/POST/PUT team management                                                                 |
+| Dashboard               | `app/modules/leads/dashboard.py`         | Scoped dashboard statistics and recent leads                                                 |
+| Marketplace             | `app/modules/marketplace/routes.py`      | Catalog/accounts, credential replacement, test/sync, activation/pause/retirement and history |
+| Health                  | `app/main.py`                            | Liveness and readiness probes                                                                |
 
 `app/modules/identity/routes.py` only assembles identity routers under `/api/v1`.
 `app/modules/identity/dependencies.py` shares the authenticated principal,
@@ -138,35 +138,35 @@ authentication; they are not implemented or exposed as placeholders.
 
 ### Authentication
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/auth/login`, `/auth/accept-invite` | Establish a membership-bound session |
-| GET | `/auth/me` | Effective identity, permissions and lead scope |
-| POST | `/auth/refresh`, `/auth/logout` | Rotate token or revoke session |
+| Method | Path                                 | Purpose                                        |
+| ------ | ------------------------------------ | ---------------------------------------------- |
+| POST   | `/auth/login`, `/auth/accept-invite` | Establish a membership-bound session           |
+| GET    | `/auth/me`                           | Effective identity, permissions and lead scope |
+| POST   | `/auth/refresh`, `/auth/logout`      | Rotate token or revoke session                 |
 
 ### Organizations
 
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/organizations/onboard` | Create organization and protected Owner |
-| GET, PUT | `/organizations/me` | Read/update organization profile |
+| Method   | Path                     | Purpose                                 |
+| -------- | ------------------------ | --------------------------------------- |
+| POST     | `/organizations/onboard` | Create organization and protected Owner |
+| GET, PUT | `/organizations/me`      | Read/update organization profile        |
 
 ### Roles and permissions
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/permissions` | Permission catalog |
-| GET, POST | `/roles` | List/create custom roles |
-| PUT | `/roles/{role_id}` | Replace role permissions/scope |
+| Method    | Path               | Purpose                        |
+| --------- | ------------------ | ------------------------------ |
+| GET       | `/permissions`     | Permission catalog             |
+| GET, POST | `/roles`           | List/create custom roles       |
+| PUT       | `/roles/{role_id}` | Replace role permissions/scope |
 
 ### Members and invitations
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/memberships` | List organization members with login emails, roles and direct overrides |
-| PUT | `/memberships/{membership_id}` | Update display name, roles, overrides, visibility, landing page, status or Owner flag |
-| DELETE | `/memberships/{membership_id}` | Soft-disable membership and revoke sessions, preserving grants and history |
-| POST | `/invitations` | Issue/reissue a 48-hour invitation |
+| Method | Path                           | Purpose                                                                               |
+| ------ | ------------------------------ | ------------------------------------------------------------------------------------- |
+| GET    | `/memberships`                 | List organization members with login emails, roles and direct overrides               |
+| PUT    | `/memberships/{membership_id}` | Update display name, roles, overrides, visibility, landing page, status or Owner flag |
+| DELETE | `/memberships/{membership_id}` | Soft-disable membership and revoke sessions, preserving grants and history            |
+| POST   | `/invitations`                 | Issue/reissue a 48-hour invitation                                                    |
 
 Login emails remain read-only shared identities. Membership listing uses the
 restricted identity pool to join emails only to tenant-filtered memberships;
@@ -177,26 +177,26 @@ and existing visibility constraints.
 
 ### Leads
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET, POST | `/leads` | Filter/list or create scoped leads |
-| GET | `/leads/options`, `/leads/assignees` | Statuses and assignment choices |
-| GET, PUT | `/leads/{lead_id}` | Detail or versioned replacement |
-| POST | `/leads/{lead_id}/archive`, `/leads/{lead_id}/restore` | Versioned lifecycle actions |
+| Method    | Path                                                   | Purpose                            |
+| --------- | ------------------------------------------------------ | ---------------------------------- |
+| GET, POST | `/leads`                                               | Filter/list or create scoped leads |
+| GET       | `/leads/options`, `/leads/assignees`                   | Statuses and assignment choices    |
+| GET, PUT  | `/leads/{lead_id}`                                     | Detail or versioned replacement    |
+| POST      | `/leads/{lead_id}/archive`, `/leads/{lead_id}/restore` | Versioned lifecycle actions        |
 
 ### Teams
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET, POST | `/teams` | List teams or Owner-only creation |
-| PUT | `/teams/{team_id}` | Owner-only team/membership replacement |
+| Method    | Path               | Purpose                                |
+| --------- | ------------------ | -------------------------------------- |
+| GET, POST | `/teams`           | List teams or Owner-only creation      |
+| PUT       | `/teams/{team_id}` | Owner-only team/membership replacement |
 
 ### Dashboard and health
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/dashboard` | Scoped counts, status/source breakdowns and recent leads |
-| GET | `/health/live`, `/health/ready` | Liveness and schema/role/database readiness |
+| Method | Path                            | Purpose                                                  |
+| ------ | ------------------------------- | -------------------------------------------------------- |
+| GET    | `/dashboard`                    | Scoped counts, status/source breakdowns and recent leads |
+| GET    | `/health/live`, `/health/ready` | Liveness and schema/role/database readiness              |
 
 ### Shared request contracts
 

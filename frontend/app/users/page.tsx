@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
@@ -7,9 +7,15 @@ import Roles from "@/components/Roles";
 import { DataTable } from "@/components/ui/data-table";
 import { useNotify } from "@/components/Notifications";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import Icon from "@/components/Icon";
 import { IconButton } from "@/components/ui/icon-button";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Collapsible } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import MemberAccessDialog from "@/components/users/MemberAccessDialog";
+import RolePicker from "@/components/users/RolePicker";
 import PermissionGroups from "@/components/PermissionGroups";
 import InvitationTokenDialog from "@/components/InvitationTokenDialog";
 import LandingPagePicker from "@/components/LandingPagePicker";
@@ -60,10 +66,10 @@ function Users() {
   }
   return <><div className="page-header"><div><h2>Users</h2><p className="muted">Invite colleagues, assign roles and select their landing pages.</p></div>{can("users.manage") && <button className="btn btn-primary" onClick={() => { setInviting(true); setEditing(null); }}>+ Invite user</button>}</div>
     <ErrorNotice error={list.error} />
-    {deleting && <section className="card editor-card" aria-label="Confirm user deletion"><h2>Delete user: {deleting.display_name}?</h2><p>This disables workspace access and revokes sessions. Leads, team membership, role grants and history are preserved. Accepted users can be reactivated through Edit access.</p><div className="form-actions"><button className="btn" type="button" disabled={busy} onClick={() => { setDeleting(null); }}>Cancel</button><button className="btn btn-danger" type="button" disabled={busy} onClick={() => void deactivate()}>{busy ? "Deleting..." : "Confirm delete"}</button></div></section>}
+    {deleting && <ConfirmDialog title={`Delete ${deleting.display_name}?`} message="They lose workspace access and their sessions end. Their leads, team membership, role grants and history are kept, and you can reactivate them later through Edit access." confirmLabel="Delete user" busy={busy} onCancel={() => setDeleting(null)} onConfirm={() => void deactivate()} />}
     {inviting && <InviteEditor onClose={() => { setInviting(false); list.reload(); }} onCreated={identity?.is_owner ? memberId => { setInviting(false); setInvitationMember(memberId); list.reload(); } : undefined} />}
     {identity?.is_owner && invitationMember && <InvitationTokenDialog key={invitationMember} memberId={invitationMember} onClose={() => { setInvitationMember(null); list.reload(); }} />}
-    {editing && <MemberEditor key={editing.id} member={editing} onClose={() => { setEditing(null); list.reload(); }} />}
+    {editing && <MemberAccessDialog key={editing.id} member={editing} onClose={() => { setEditing(null); list.reload(); }} />}
     <DataTable data={list.data?.data} rowKey={member => member.id} list={list}
       columns={[
         { id: "name", meta: { width: "200px" }, header: "Name", accessorFn: member => member.display_name, enableSorting: true, cell: ({ row }) => <strong className="user-name-cell">{row.original.display_name}</strong> },
@@ -102,31 +108,15 @@ function InviteEditor({ onClose, onCreated }: { onClose: () => void; onCreated?:
     } catch (error) { notify.error(errorMessage(error), { title: "Invitation could not be created" }); }
     finally { setBusy(false); }
   }
-  if (token) return <div className="card editor-card"><h2>Invitation ready</h2><div className="alert alert-info" role="status">Deliver this token privately. It expires in 48 hours and is shown only here. Email delivery is not implemented.</div><Field label="Private invitation token"><textarea className="input mono" readOnly value={token} rows={4} autoComplete="off" /></Field><p>Ask the user to open <code>/accept-invite</code> and paste this token. Do not put it in a URL or public message.</p><button className="btn btn-primary" onClick={() => { setToken(""); onClose(); }}>Done / hide token</button></div>;
-  return <form className="card editor-card" onSubmit={invite}><h2>Invite a team member</h2><div className="form-grid"><Field label="Display name"><input className="input" name="display_name" required maxLength={200} /></Field><Field label="Email"><input className="input" name="email" type="email" required /></Field><Field label="Visibility override"><select className="select" name="visibility_override"><option value="">Use role scope</option><option value="own">Own</option><option value="team">Team</option><option value="all">All organization</option></select></Field><LandingPagePicker /></div><SelectionPicker path="/roles" label="Assign active roles" values={roles} onChange={setRoles} /><p className="small muted">Submitting an existing invited email reissues its invitation and invalidates the previous token. Choose roles carefully.</p><div className="form-actions"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? "Creating..." : "Create invitation"}</button></div></form>;
-}
-function MemberEditor({ member, onClose }: { member: Member; onClose: () => void }) {
-  const { identity } = useSession();
-  const catalog = useResource<{ data: Permission[] }>("/permissions");
-  const [roles, setRoles] = useState(member.role_ids);
-  const [overrides, setOverrides] = useState<Record<string, boolean>>(member.permission_overrides);
-  const [scope, setScope] = useState<Scope | "">(member.visibility_override || "");
-  const [busy, setBusy] = useState(false);
-  const notify = useNotify();
-  async function save(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true);
-    const values = new FormData(event.currentTarget);
-    try {
-      await crm(`/memberships/${member.id}`, { method: "PUT", body: JSON.stringify({ display_name: values.get("display_name"), status: values.get("status"), role_ids: roles, visibility_override: scope || null, permission_overrides: overrides, landing_page: values.get("landing_page") || null, ...(identity?.is_owner ? { is_owner: values.get("is_owner") === "on" } : {}) }) });
-      notify.success(`${values.get("display_name")}'s access was saved.`, { title: "Access updated" });
-      onClose();
-    } catch (error) { notify.error(errorMessage(error), { title: "Access could not be saved" }); }
-    finally { setBusy(false); }
-  }
-  return <form className="card editor-card" onSubmit={save}><h2>Access: {member.display_name}</h2><ErrorNotice error={catalog.error} /><div className="form-grid">
-    <Field label="Display name"><input className="input" name="display_name" required maxLength={200} defaultValue={member.display_name} /></Field>
-    <Field label="Login email"><input className="input" type="email" value={member.email} readOnly /><span className="small muted">Shared login identity; email cannot be changed here.</span></Field>
-    <Field label="Membership status"><select className="select" name="status" defaultValue={member.status}><option value="active">Active</option><option value="disabled">Disabled (revoke sessions)</option></select></Field><Field label="Visibility override"><select className="select" value={scope} onChange={event => setScope(event.target.value as Scope | "")}><option value="">From roles</option><option value="own">Own</option><option value="team">Team</option><option value="all">All</option></select></Field><LandingPagePicker value={member.landing_page} />{identity?.is_owner && <label className="check-row"><input name="is_owner" type="checkbox" defaultChecked={member.is_owner} />Organization Owner (full access)</label>}</div><SelectionPicker label="Roles" path="/roles" values={roles} onChange={setRoles} /><h3>Direct permission overrides</h3><PermissionGroups catalog={catalog.data?.data || []} overrides={overrides} onOverride={setOverrides} /><p className="small muted">Select all adds direct allows within your grant ceiling; Clear resets a group to role defaults, not denies. Owners retain full access. The final active Owner cannot be demoted or disabled.</p><div className="form-actions"><button className="btn" type="button" onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy || catalog.loading || Boolean(catalog.error)}>{busy ? "Saving..." : "Save access"}</button></div></form>;
+  if (token) return <Dialog open onOpenChange={open => { if (!open) { setToken(""); onClose(); } }}><DialogContent size="md"><DialogHeader><DialogTitle>Invitation ready</DialogTitle><DialogDescription>Deliver this token privately. It expires in 48 hours and is shown only here. Email delivery is not implemented.</DialogDescription></DialogHeader><Field label="Private invitation token"><textarea className="input mono" readOnly value={token} rows={4} autoComplete="off" /></Field><p className="small muted">Ask the user to open <code>/accept-invite</code> and paste this token. Do not put it in a URL or public message.</p><div className="form-actions"><button className="btn btn-primary" onClick={() => { setToken(""); onClose(); }}>Done / hide token</button></div></DialogContent></Dialog>;
+  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}><DialogContent size="xl" className="ui-dialog-split" hideClose><form className="split-form" onSubmit={invite}>
+    <header className="split-head"><span className="org-avatar" aria-hidden="true"><Icon name="plus" size={22} /></span><div><DialogTitle>Invite a team member</DialogTitle><DialogDescription>They receive a private token to join your workspace.</DialogDescription></div><button type="button" className="ui-dialog-close" aria-label="Close" onClick={onClose}><Icon name="close" /></button></header>
+    <div className="split-body invite-body">
+      <section><h3 className="split-heading">Details</h3><div className="form-grid single"><Field label="Display name"><input className="input" name="display_name" required maxLength={200} /></Field><Field label="Email"><input className="input" name="email" type="email" required /></Field><Field label="Lead visibility override"><select className="select" name="visibility_override"><option value="">Use role scope</option><option value="own">Own leads</option><option value="team">Team leads</option><option value="all">All leads</option></select></Field><LandingPagePicker /></div></section>
+      <section><h3 className="split-heading">Roles</h3><RolePicker values={roles} onChange={setRoles} /><p className="small muted">Submitting an existing invited email reissues its invitation and invalidates the previous token.</p></section>
+    </div>
+    <footer className="split-foot"><span className="small muted">{roles.length} {roles.length === 1 ? "role" : "roles"} selected</span><div><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={busy}>{busy ? "Creating..." : "Create invitation"}</Button></div></footer>
+  </form></DialogContent></Dialog>;
 }
 function Teams() {
   const list = usePaged<Team>("/teams");

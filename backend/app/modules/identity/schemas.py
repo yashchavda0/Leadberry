@@ -1,4 +1,5 @@
 from typing import Literal
+from datetime import date
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -119,6 +120,32 @@ class ProfileInput(Input):
     display_name: str = Field(min_length=1, max_length=200)
     phone: str | None = Field(None, max_length=40)
     job_title: str | None = Field(None, max_length=120)
+    date_of_birth: date | None = None
+    gender: Literal["female", "male", "non_binary", "prefer_not_to_say"] | None = None
+    address: str | None = Field(None, max_length=300)
+    city: str | None = Field(None, max_length=100)
+    state: str | None = Field(None, max_length=100)
+
+    @field_validator(
+        "phone",
+        "job_title",
+        "date_of_birth",
+        "gender",
+        "address",
+        "city",
+        "state",
+        mode="before",
+    )
+    @classmethod
+    def blank_to_none(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def plausible_birth_date(cls, value: date | None) -> date | None:
+        if value is not None and not (date(1900, 1, 1) <= value <= date.today()):
+            raise ValueError("Enter a valid date of birth")
+        return value
 
 
 class MembershipUpdate(Input):

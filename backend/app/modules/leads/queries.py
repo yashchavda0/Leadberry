@@ -65,7 +65,8 @@ def fields(user: Principal) -> str:
         "(length(crm.repeat_phone_key(l.phone))>=7 "
         "AND crm.repeat_phone_key(previous.phone)=crm.repeat_phone_key(l.phone)) "
         "OR (NULLIF(btrim(l.email),'') IS NOT NULL AND lower(btrim(previous.email))=lower(btrim(l.email)))))"
-        if pii else "NULL::boolean"
+        if pii
+        else "NULL::boolean"
     )
     return (
         "l.id,l.name,l.company,l.city,l.state,l.product,l.source_provider,l.source_record_id,l.status_id,"

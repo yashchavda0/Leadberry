@@ -39,9 +39,7 @@ class LeadQueryService:
         if cursor is not None:
             page_conditions.append("(l.received_at,l.id)<(:moment,:id)")
             page_parameters.update(moment=cursor[0], id=cursor[1])
-        rows = await self.repository.list_page(
-            page_conditions, page_parameters, limit
-        )
+        rows = await self.repository.list_page(page_conditions, page_parameters, limit)
         return {
             "data": rows[:limit],
             "next_cursor": rows[limit - 1] if len(rows) > limit else None,

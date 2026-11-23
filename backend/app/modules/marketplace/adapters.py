@@ -64,7 +64,10 @@ def validate_result(result: object) -> FetchResult:
         if not isinstance(lead, Mapping):
             raise AccessError(502, "provider_payload_invalid")
         item = dict(lead)
-        if any(not isinstance(item.get(field), str) or not item[field].strip() for field in _REQUIRED_LEAD_FIELDS):
+        if any(
+            not isinstance(item.get(field), str) or not item[field].strip()
+            for field in _REQUIRED_LEAD_FIELDS
+        ):
             raise AccessError(502, "provider_payload_invalid")
         try:
             source_time = datetime.fromisoformat(item["source_time"])
@@ -72,7 +75,12 @@ def validate_result(result: object) -> FetchResult:
             raise AccessError(502, "provider_payload_invalid") from None
         if source_time.tzinfo is None:
             raise AccessError(502, "provider_payload_invalid")
-        if any(field in item and item[field] is not None and not isinstance(item[field], str) for field in _OPTIONAL_LEAD_FIELDS):
+        if any(
+            field in item
+            and item[field] is not None
+            and not isinstance(item[field], str)
+            for field in _OPTIONAL_LEAD_FIELDS
+        ):
             raise AccessError(502, "provider_payload_invalid")
         normalized.append(item)
     return (normalized, next_page) if isinstance(result, tuple) else normalized

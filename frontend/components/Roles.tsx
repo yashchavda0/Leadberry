@@ -20,11 +20,11 @@ export default function Roles({ permissionsOnly = false }: { permissionsOnly?: b
   const { can } = useSession();
   const [editing, setEditing] = useState<Role | "new" | null>(null);
   const [revision, setRevision] = useState(0);
-  return <><div className="page-header"><div><h2>{permissionsOnly ? "Permissions" : "Roles"}</h2><p className="muted">{permissionsOnly ? "Edit a role's grouped permissions here. Individual overrides are saved in the Users tab." : "Reporting determines levels, not access. Level 1 is the highest."}</p></div>{!permissionsOnly && can("roles.manage") && <button className="btn btn-primary" onClick={() => setEditing("new")}>+ Create role</button>}</div>
+  return <><div className="page-header"><div><h2>{permissionsOnly ? "Permissions" : "Roles"}</h2><p className="muted">{permissionsOnly ? "Pick a role, toggle its permissions and save." : "Reporting determines levels, not access. Level 1 is the highest."}</p></div>{!permissionsOnly && can("roles.manage") && <button className="btn btn-primary" onClick={() => setEditing("new")}>+ Create role</button>}</div>
     <div className="alert alert-info">Owners always have full access. For other members, active roles combine permissions, direct deny overrides win, and the visibility override replaces role scope.</div>
     <ErrorNotice error={list.error || catalog.error} />
     {editing && catalog.data && <RoleEditor key={typeof editing === "string" ? "new" : editing.id} role={typeof editing === "string" ? undefined : editing} catalog={catalog.data.data} onDone={() => { setEditing(null); list.reload(); setRevision(value => value + 1); }} onCancel={() => setEditing(null)} />}
-    {permissionsOnly && (catalog.data ? <RolePermissionsView key={revision} catalog={catalog.data.data} onEdit={setEditing} /> : <Loading />)}
+    {permissionsOnly && (catalog.data ? <RolePermissionsView key={revision} catalog={catalog.data.data} /> : <Loading />)}
     {!permissionsOnly && <DataTable data={list.data?.data} rowKey={role => role.id} list={list}
       empty={<div className="empty-state"><h3>No custom roles yet</h3><p className="muted">Create a role in the Roles tab before inviting your team.</p></div>}
       columns={[

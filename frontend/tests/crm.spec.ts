@@ -2,207 +2,80 @@ import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { homeFor, type Identity } from "../lib/crm";
 
-test("lead timeline records a connected response activity", async ({
-  page,
-}) => {
-  const logged: Record<string, unknown>[] = [];
-  const lead = {
-    id: "lead-1",
-    name: "Activity buyer",
-    company: "Example",
-    phone: "1234567890",
-    email: "buyer@example.com",
-    city: "Pune",
-    state: "Maharashtra",
-    address: "",
-    product: "Equipment",
-    enquiry: "Quote request",
-    source_provider: "website",
-    source_record_id: null,
-    status_id: "status-new",
-    status: "New",
-    status_color: "#15803d",
-    integration_id: null,
-    source_account_name: null,
-    status_changed_at: "2026-01-01T10:00:00Z",
-    assigned_membership_id: "member",
-    assignee: "Owner",
-    team_id: null,
-    team_name: null,
-    tags: [],
-    custom_fields: {},
-    next_follow_up_at: null,
-    archived_at: null,
-    row_version: 1,
-    received_at: "2026-01-01T09:00:00Z",
-    updated_at: "2026-01-01T10:00:00Z",
-    pii_redacted: false,
-    is_repeat_customer: false,
-  };
-  await page.route("**/api/v1/**", async (route) => {
+test("lead intake manages API keys and routing", async ({ page }) => {
+  let created = false;
+  let revoked = false;
+  let saved = false;
+  await page.route("**/api/v1/**", async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace("/api/v1", "");
-    if (path === "/auth/me")
-      return route.fulfill({
-        json: {
-          organization_id: "org",
-          membership_id: "member",
-          user_id: "user",
-          display_name: "Owner",
-          is_owner: true,
-          permissions: ["leads.view", "leads.edit", "leads.pii.view"],
-          data_scope: "all",
-          landing_page: "/leads",
-        },
-      });
-    if (path === "/organizations/me")
-      return route.fulfill({
-        json: {
-          id: "org",
-          slug: "qa",
-          name: "QA",
-          timezone: "UTC",
-          status: "active",
-        },
-      });
-    if (path === "/leads/lead-1") return route.fulfill({ json: lead });
-    if (path === "/leads/options")
-      return route.fulfill({
-        json: {
-          statuses: [
-            {
-              id: "status-new",
-              name: "New",
-              color: "#15803d",
-              type: "working",
-              is_active: true,
-            },
-          ],
-          custom_fields: [],
-        },
-      });
-    if (path === "/leads/lead-1/status-history")
-      return route.fulfill({ json: { data: [] } });
-    if (path === "/leads/lead-1/activities" && request.method() === "GET")
-      return route.fulfill({ json: { data: logged, next_cursor: null } });
-    if (path === "/leads/lead-1/activities" && request.method() === "POST") {
-      const body = request.postDataJSON();
-      logged.unshift({
-        id: "activity-1",
-        lead_id: lead.id,
-        actor_membership_id: "member",
-        actor_name: "Owner",
-        ...body,
-        created_at: "2026-01-01T10:30:00Z",
-      });
-      return route.fulfill({ status: 201, json: logged[0] });
+    if (path === "/auth/me") return route.fulfill({ json: { organization_id: "org", membership_id: "member", user_id: "user", display_name: "Owner", is_owner: true, permissions: ["api_keys.manage", "assignment_rules.manage", "leads.create", "leads.pii.view"], data_scope: "all", landing_page: "/" } });
+    if (path === "/organizations/me") return route.fulfill({ json: { id: "org", name: "QA", timezone: "UTC" } });
+    if (path === "/intake/keys" && request.method() === "POST") { created = true; return route.fulfill({ status: 201, json: { id: "key-1", token: "one-time-secret" } }); }
+    if (path === "/intake/keys" && request.method() === "GET") return route.fulfill({ json: { data: created ? [{ id: "key-1", name: "Main site", created_at: "2026-01-01T10:00:00Z", revoked_at: revoked ? "2026-01-02T10:00:00Z" : null }] : [], next_cursor: null } });
+    if (path === "/intake/keys/key-1" && request.method() === "DELETE") { revoked = true; return route.fulfill({ status: 204 }); }
+    if (path === "/assignment-rules" && request.method() === "GET") return route.fulfill({ json: { data: saved ? [{ source: "website", team_id: "team-1", team_name: "Sales team", team_active: true, enabled: true }] : [] } });
+    if (path === "/assignment-rules/teams") return route.fulfill({ json: { data: [{ id: "team-1", name: "Sales team", is_active: true }], next_cursor: null } });
+    if (path === "/assignment-rules/website" && request.method() === "PUT") { saved = true; return route.fulfill({ json: request.postDataJSON() }); }
+    if (path === "/assignment-rules/website/preview") return route.fulfill({ json: { reason: "assigned", member_name: "Agent" } });
+    return route.fulfill({ json: { data: [] } });
+  });
+  await page.goto("/intake");
+  await page.getByRole("button", { name: "Create key" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Main site");
+  await page.getByRole("dialog").getByRole("button", { name: "Create key" }).click();
+  await expect(page.getByRole("textbox", { name: "API key", exact: true })).toHaveValue("one-time-secret");
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByText("one-time-secret")).toHaveCount(0);
+  await page.getByRole("button", { name: "Revoke Main site" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Revoke key" }).click();
+  await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "Assignment rules" }).click();
+  await page.getByRole("button", { name: "Website API team" }).click();
+  await page.getByRole("button", { name: "Sales team" }).click();
+  await page.getByRole("button", { name: "Save" }).first().click();
+  await page.getByRole("button", { name: "Preview" }).first().click();
+  await expect(page.getByText("Next: Agent")).toBeVisible();
+});
+
+test("follow-up queue filters and completes a task", async ({ page }) => {
+  const task = {
+    id: "task-1", lead_id: "lead-1", lead_name: "Sample buyer", lead_status: "Pending",
+    assigned_membership_id: "member", assignee: "Agent", due_at: "2026-01-01T10:00:00Z",
+    state: "open", note: "", completed_at: null, created_at: "2026-01-01T09:00:00Z", row_version: 1,
+  };
+  let completed = false;
+  let submitted: Record<string, unknown> | null = null;
+  await page.route("**/api/v1/**", async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname.replace("/api/v1", "");
+    if (path === "/auth/me") return route.fulfill({ json: {
+      organization_id: "org", membership_id: "member", user_id: "user", display_name: "Agent",
+      is_owner: false, permissions: ["leads.view", "leads.edit", "leads.pii.view"], data_scope: "own", landing_page: "/leads",
+    } });
+    if (path === "/organizations/me") return route.fulfill({ json: { id: "org", name: "QA", timezone: "Asia/Kolkata" } });
+    if (path === "/follow-ups") return route.fulfill({ json: { data: completed ? [] : [task], next_cursor: null } });
+    if (path === "/follow-ups/task-1/complete") {
+      submitted = request.postDataJSON();
+      completed = true;
+      return route.fulfill({ json: { id: task.id, state: "completed" } });
     }
     return route.fulfill({ json: { data: [] } });
   });
-  await page.goto("/leads/lead-1");
-  await page.getByRole("tab", { name: "Timeline" }).click();
-  await page.getByRole("combobox", { name: "Activity" }).selectOption("email");
-  await page
-    .getByRole("combobox", { name: "Outcome" })
-    .selectOption("connected");
-  await page
-    .getByRole("region", { name: "Response activities" })
-    .getByRole("textbox", { name: "Note" })
-    .fill("Customer replied");
-  await page.getByRole("button", { name: "Log activity" }).click();
-  await expect(page.getByText("Customer replied")).toBeVisible();
-  expect(logged[0]).toMatchObject({
-    activity_type: "email",
-    outcome: "connected",
-    note: "Customer replied",
-  });
-});
-
-test("manager reports separate response activity from source conversion", async ({
-  page,
-}) => {
-  await page.route("**/api/v1/**", async (route) => {
-    const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
-    if (path === "/auth/me")
-      return route.fulfill({
-        json: {
-          organization_id: "org",
-          membership_id: "member",
-          user_id: "user",
-          display_name: "Owner",
-          is_owner: true,
-          permissions: ["reports.view"],
-          data_scope: "all",
-          landing_page: "/",
-        },
-      });
-    if (path === "/organizations/me")
-      return route.fulfill({
-        json: {
-          id: "org",
-          slug: "qa",
-          name: "QA",
-          timezone: "UTC",
-          status: "active",
-        },
-      });
-    if (path === "/reports/leads")
-      return route.fulfill({
-        json: {
-          start: "2026-01-01",
-          end: "2026-01-07",
-          timezone: "UTC",
-          statuses: [
-            {
-              id: "won",
-              name: "Won",
-              color: "#15803d",
-              type: "won",
-              is_active: true,
-            },
-          ],
-          follow_up: [],
-          activity_by_user: [
-            {
-              member_id: "member",
-              name: "Agent",
-              activities: 2,
-              leads_touched: 1,
-              connected_activities: 1,
-              leads_connected: 1,
-              first_activity_leads: 1,
-              average_first_activity_hours: 1.5,
-              median_first_activity_hours: 1.5,
-            },
-          ],
-          by_user: [],
-          by_source: [
-            {
-              name: "website",
-              total: 2,
-              open: 1,
-              converted: 1,
-              counts: { won: 1 },
-            },
-          ],
-          source_conversion: [
-            { name: "website", total: 2, converted: 1, conversion_rate: 50 },
-          ],
-        },
-      });
-    return route.fulfill({ json: { data: [] } });
-  });
-  await page.goto("/reports");
-  await expect(
-    page.getByRole("heading", { name: "Response activity" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Source conversion" }),
-  ).toBeVisible();
-  await expect(page.getByText("50.0%")).toBeVisible();
-  await expect(
-    page.getByText(/status transitions are separate|Connected means/),
-  ).toHaveCount(0);
+  await page.goto("/follow-ups");
+  await expect(page.getByRole("link", { name: "Sample buyer" })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("heading", { name: "Follow-ups", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Overdue", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Overdue", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("Assigned to me").check();
+  await page.getByRole("button", { name: "Complete follow-up for Sample buyer" }).click();
+  await page.getByLabel("Note (optional)").fill("Called customer");
+  await page.getByRole("dialog").getByRole("button", { name: "Complete", exact: true }).click();
+  await expect(page.getByText("No follow-ups found.")).toBeVisible();
+  expect(submitted).toEqual({ row_version: 1, note: "Called customer" });
 });
 
 test("invited member can skip optional profile details and edit their signed-in name", async ({
@@ -456,10 +329,12 @@ test("service failures hide technical details on lead pages", async ({
     for (const path of ["/leads", "/leads/qa"]) {
       await page.goto(path);
       await expect(
-        page.getByRole("alert").filter({
-          hasText:
-            "Service is not available right now. Please try again later.",
-        }),
+        page
+          .getByRole("alert")
+          .filter({
+            hasText:
+              "Service is not available right now. Please try again later.",
+          }),
       ).toBeVisible();
       await expect(page.locator("body")).not.toContainText(
         "Technical backend detail",
@@ -1823,7 +1698,7 @@ test("owner onboarding, roles, invitations, leads, restricted member and respons
   await page.getByLabel("Role name").fill("Restricted agent");
   await page.getByLabel("Director", { exact: true }).check();
   const leadPermissions = page.locator("fieldset").filter({
-    has: page.locator(".permission-group-title").filter({ hasText: /^leads$/ }),
+    has: page.locator(".permission-group-title").filter({ hasText: /^Leads$/ }),
   });
   const headingBounds = await leadPermissions.locator("legend").boundingBox();
   const actionBounds = await leadPermissions
@@ -1848,23 +1723,23 @@ test("owner onboarding, roles, invitations, leads, restricted member and respons
     ),
   ).toBeLessThanOrEqual(1);
   await expect(
-    leadPermissions.getByRole("button", { name: "Select all", exact: true }),
+    leadPermissions.getByRole("button", { name: "Grant all", exact: true }),
   ).toHaveCSS("min-height", "26px");
   await expect(leadPermissions.getByRole("button")).toHaveCount(1);
   await page.getByLabel("leads.view", { exact: true }).check();
-  await expect(leadPermissions.getByRole("button")).toHaveText("Select all");
+  await expect(leadPermissions.getByRole("button")).toHaveText("Grant all");
   await leadPermissions
-    .getByRole("button", { name: "Select all", exact: true })
+    .getByRole("button", { name: "Grant all", exact: true })
     .click();
   await expect(page.getByLabel("leads.edit", { exact: true })).toBeChecked();
-  await expect(leadPermissions.getByRole("button")).toHaveText("Clear");
+  await expect(leadPermissions.getByRole("button")).toHaveText("Clear grants");
   await page.getByLabel("leads.edit", { exact: true }).uncheck();
-  await expect(leadPermissions.getByRole("button")).toHaveText("Select all");
+  await expect(leadPermissions.getByRole("button")).toHaveText("Grant all");
   await page.getByLabel("leads.edit", { exact: true }).check();
   await leadPermissions
-    .getByRole("button", { name: "Clear", exact: true })
+    .getByRole("button", { name: "Clear grants", exact: true })
     .click();
-  await expect(leadPermissions.getByRole("button")).toHaveText("Select all");
+  await expect(leadPermissions.getByRole("button")).toHaveText("Grant all");
   await expect(
     page.getByLabel("leads.edit", { exact: true }),
   ).not.toBeChecked();

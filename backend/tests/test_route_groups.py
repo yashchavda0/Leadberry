@@ -19,6 +19,7 @@ GROUPS = {
         "/auth/accept-invite": {"post"},
         "/auth/refresh": {"post"},
         "/auth/logout": {"post"},
+        "/auth/password": {"post"},
         "/auth/me": {"get"},
         "/auth/profile": {"get", "put"},
     },
@@ -37,6 +38,17 @@ GROUPS = {
         "/memberships/{membership_id}/invitation": {"get"},
         "/invitations": {"post"},
     },
+    "Platform administration": {
+        "/platform/login": {"post"},
+        "/platform/me": {"get"},
+        "/platform/logout": {"post"},
+        "/platform/organizations": {"get"},
+        "/platform/organizations/{organization_id}": {"get", "put"},
+        "/platform/organizations/{organization_id}/users": {"get"},
+        "/platform/organizations/{organization_id}/users/{membership_id}": {"put"},
+        "/platform/organizations/{organization_id}/users/{membership_id}/generate-password": {"post"},
+        "/platform/audit": {"get"},
+    },
     "Leads": {
         "/leads": {"get", "post"},
         "/leads/export": {"get"},
@@ -44,7 +56,6 @@ GROUPS = {
         "/leads/assignees": {"get"},
         "/leads/{lead_id}": {"get", "put"},
         "/leads/{lead_id}/status-history": {"get"},
-        "/leads/{lead_id}/activities": {"get", "post"},
         "/leads/{lead_id}/status": {"post"},
         "/leads/{lead_id}/archive": {"post"},
         "/leads/{lead_id}/restore": {"post"},
@@ -57,6 +68,9 @@ GROUPS = {
         "/lead-custom-fields": {"get", "post"},
         "/lead-custom-fields/{field_key}": {"put"},
         "/lead-table-preferences": {"get", "put"},
+    },
+    "Lead activities": {
+        "/leads/{lead_id}/activities": {"get", "post"},
     },
     "Follow-ups": {
         "/follow-ups": {"get"},
@@ -236,9 +250,16 @@ def test_login_keeps_session_cookies_and_throttling(app):
 def test_current_identity_uses_the_shared_principal_dependency(app, monkeypatch):
     from app.modules.identity import authentication
 
+    class MemberResult:
+        def mappings(self):
+            return self
+
+        def one(self):
+            return {"landing_page": "/leads", "display_name": "Member"}
+
     @asynccontextmanager
     async def transaction(*args):
-        yield SimpleNamespace(scalar=AsyncMock(return_value="/leads"))
+        yield SimpleNamespace(execute=AsyncMock(return_value=MemberResult()))
 
     monkeypatch.setattr(authentication, "tenant_transaction", transaction)
     app.state.database_engine = object()

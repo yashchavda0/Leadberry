@@ -116,6 +116,7 @@ export type Identity = {
   permissions: string[];
   data_scope: Scope;
   landing_page: string | null;
+  password_change_required: boolean;
 };
 export type Organization = {
   id: string;
@@ -355,8 +356,10 @@ const messages: Record<string, string> = {
     "Managing assignment rules requires organization-wide lead visibility.",
   intake_key_not_found: "This API key is no longer available.",
   invalid_team: "Choose an active team in this organization.",
-  idempotency_conflict: "This submission identifier was already used with different details.",
-  intake_rate_limited: "This API key has reached its request limit. Try again shortly.",
+  idempotency_conflict:
+    "This submission identifier was already used with different details.",
+  intake_rate_limited:
+    "This API key has reached its request limit. Try again shortly.",
   invalid_custom_field_value:
     "One or more custom-field values do not match their configured type or options.",
   unknown_custom_field: "A custom field is not defined for this organization.",

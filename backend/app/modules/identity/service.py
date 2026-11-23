@@ -30,6 +30,8 @@ class Principal:
     is_owner: bool
     permissions: frozenset[str]
     data_scope: str
+    access_mode: str = "full"
+    password_change_required: bool = False
 
 
 async def audit(
@@ -126,6 +128,61 @@ async def effective_access(
     return False, frozenset(codes), row["visibility_override"] or scope, row["user_id"]
 
 
+async def organization_access_mode(connection: AsyncConnection, org: UUID) -> str:
+    row = (
+        (
+            await connection.execute(
+                text(
+                    "SELECT status,subscription_status,subscription_ends_at,export_access_until "
+                    "FROM crm.organizations WHERE id=:org"
+                ),
+                {"org": org},
+            )
+        )
+        .mappings()
+        .first()
+    )
+    if row is None or row["status"] != "active":
+        raise AccessError(401, "membership_inactive")
+    now = datetime.now(timezone.utc)
+    subscription_ended = row["subscription_status"] == "expired" or (
+        row["subscription_ends_at"] is not None
+        and row["subscription_ends_at"] <= now
+    ) or (row["subscription_status"] == "canceled" and row["subscription_ends_at"] is None)
+    if not subscription_ended:
+        return "full"
+    if (
+        row["export_access_until"] is not None
+        and row["export_access_until"] > now
+    ):
+        return "export_only"
+    raise AccessError(403, "subscription_access_ended")
+
+
+async def revoke_user_sessions(
+    engine: AsyncEngine, user_id: UUID, except_session_id: UUID | None = None
+) -> None:
+    async with engine.connect() as connection:
+        organizations = list(
+            (
+                await connection.execute(
+                    text("SELECT organization_id FROM crm.organization_directory")
+                )
+            ).scalars()
+        )
+    for org in organizations:
+        async with tenant_transaction(engine, org) as connection:
+            await connection.execute(
+                text(
+                    "UPDATE crm.auth_sessions s SET revoked_at=COALESCE(s.revoked_at,now()) "
+                    "FROM crm.organization_memberships m WHERE s.org_id=:org AND m.org_id=s.org_id "
+                    "AND m.id=s.membership_id AND m.user_id=:user "
+                    "AND (CAST(:except_session AS uuid) IS NULL OR s.id<>:except_session)"
+                ),
+                {"org": org, "user": user_id, "except_session": except_session_id},
+            )
+
+
 async def authorize_mutation(
     connection: AsyncConnection, principal: Principal, permission: str
 ) -> Principal:
@@ -134,6 +191,9 @@ async def authorize_mutation(
         text("SELECT id FROM crm.organizations WHERE id=:org FOR UPDATE"),
         {"org": principal.org_id},
     )
+    access_mode = await organization_access_mode(connection, principal.org_id)
+    if access_mode != "full":
+        raise AccessError(403, "export_only_access")
     owner, codes, scope, user = await effective_access(
         connection, principal.org_id, principal.member_id
     )
@@ -147,6 +207,8 @@ async def authorize_mutation(
         owner,
         codes,
         scope,
+        access_mode,
+        principal.password_change_required,
     )
 
 
@@ -280,6 +342,12 @@ class IdentityService:
                 .first()
             )
             if user is not None:
+                is_platform_operator = await connection.scalar(
+                    text("SELECT 1 FROM crm.platform_operators WHERE user_id=:user"),
+                    {"user": user["id"]},
+                )
+                if is_platform_operator:
+                    raise AccessError(409, "identity_unavailable")
                 if not await self.passwords.verify(
                     body.password.get_secret_value(), user["password_hash"]
                 ):
@@ -384,6 +452,14 @@ class IdentityService:
                 text("SELECT id FROM crm.organizations WHERE id=:org FOR UPDATE"),
                 {"org": org},
             )
+            latest_password_hash = await connection.scalar(
+                text("SELECT password_hash FROM crm.app_users WHERE id=:user FOR UPDATE"),
+                {"user": user["id"]},
+            )
+            if latest_password_hash != user["password_hash"] or not await self.passwords.verify(
+                body.password.get_secret_value(), latest_password_hash
+            ):
+                raise AccessError(401, "invalid_credentials")
             member = await connection.scalar(
                 text(
                     "SELECT id FROM crm.organization_memberships WHERE org_id=:org AND user_id=:user AND status='active'"
@@ -393,6 +469,7 @@ class IdentityService:
             if member is None:
                 raise AccessError(401, "invalid_credentials")
             await effective_access(connection, org, member)
+            await organization_access_mode(connection, org)
             if await connection.scalar(
                 text(
                     "SELECT require_mfa FROM crm.organization_settings WHERE org_id=:org"
@@ -434,6 +511,7 @@ class IdentityService:
             owner, codes, scope, user = await effective_access(
                 connection, org, row["membership_id"]
             )
+            access_mode = await organization_access_mode(connection, org)
             if await connection.scalar(
                 text(
                     "SELECT require_mfa FROM crm.organization_settings WHERE org_id=:org"
@@ -441,8 +519,20 @@ class IdentityService:
                 {"org": org},
             ):
                 raise AccessError(403, "mfa_required_not_available")
+            password_change_required = await connection.scalar(
+                text("SELECT password_change_required FROM crm.app_users WHERE id=:user"),
+                {"user": user},
+            )
             return Principal(
-                org, row["membership_id"], session, user, owner, codes, scope
+                org,
+                row["membership_id"],
+                session,
+                user,
+                owner,
+                codes,
+                scope,
+                access_mode,
+                bool(password_change_required),
             )
 
     async def refresh(self, token: str, csrf: str) -> tuple[str, str]:
@@ -480,6 +570,7 @@ class IdentityService:
             if not secrets.compare_digest(bytes(row["csrf_token_hash"]), digest(csrf)):
                 raise AccessError(403, "invalid_csrf")
             await effective_access(connection, org, row["membership_id"])
+            await organization_access_mode(connection, org)
             if await connection.scalar(
                 text(
                     "SELECT require_mfa FROM crm.organization_settings WHERE org_id=:org"
@@ -543,3 +634,24 @@ class IdentityService:
                 "session.revoked",
                 principal.session_id,
             )
+
+    async def change_password(
+        self, principal: Principal, current_password: str, new_password: str
+    ) -> None:
+        async with self.engine.connect() as connection:
+            password_hash = await connection.scalar(
+                text("SELECT password_hash FROM crm.app_users WHERE id=:user"),
+                {"user": principal.user_id},
+            )
+        if not await self.passwords.verify(current_password, password_hash):
+            raise AccessError(403, "invalid_current_password")
+        new_hash = await self.passwords.hash(new_password)
+        async with self.engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE crm.app_users SET password_hash=:hash,password_change_required=false,updated_at=now() "
+                    "WHERE id=:user"
+                ),
+                {"hash": new_hash, "user": principal.user_id},
+            )
+        await revoke_user_sessions(self.engine, principal.user_id, principal.session_id)

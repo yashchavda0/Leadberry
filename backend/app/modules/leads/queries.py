@@ -5,7 +5,7 @@ from sqlalchemy import text
 
 from ...core.phone import normalize_phone
 from ...core.unit_of_work import UnitOfWork
-from ..identity.service import AccessError, Principal, effective_access
+from ..identity.service import AccessError, Principal, effective_access, organization_access_mode
 
 
 def lead_payload(row) -> dict:
@@ -26,11 +26,14 @@ async def access(request: Request, user: Principal, permission: str):
             text("SELECT id FROM crm.organizations WHERE id=:org FOR SHARE"),
             {"org": user.org_id},
         )
+        access_mode = await organization_access_mode(connection, user.org_id)
+        if request.method not in ("GET", "HEAD", "OPTIONS") and access_mode != "full":
+            raise AccessError(403, "export_only_access")
         owner, codes, scope, identity = await effective_access(
             connection, user.org_id, user.member_id
         )
         current = Principal(
-            user.org_id, user.member_id, user.session_id, identity, owner, codes, scope
+            user.org_id, user.member_id, user.session_id, identity, owner, codes, scope, access_mode, user.password_change_required
         )
         if permission not in codes:
             raise AccessError(403, "permission_denied")

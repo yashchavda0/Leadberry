@@ -42,6 +42,24 @@
 			"command": "$env:PYTEST_ADDOPTS = '-k export'; & '.\\backend\\.venv\\Scripts\\python.exe' scripts/Run-PostgresTests.py",
 			"isBackground": false,
 			"problemMatcher": []
+		},
+		{
+			"label": "Verify Platform Administration",
+			"type": "shell",
+			"command": "& '.\\backend\\.venv\\Scripts\\python.exe' scripts/Run-PostgresTests.py --platform",
+			"isBackground": false
+		},
+		{
+			"label": "Upgrade Local CRM Schema",
+			"type": "shell",
+			"command": "& '.\\backend\\.venv\\Scripts\\python.exe' scripts/Invoke-LocalBackend.py migrate",
+			"isBackground": false
+		},
+		{
+			"label": "Initialize Local Platform Provisioner",
+			"type": "shell",
+			"command": "& '.\\backend\\.venv\\Scripts\\python.exe' scripts/Initialize-PlatformProvisioner.py",
+			"isBackground": false
 		}
 	]
 }

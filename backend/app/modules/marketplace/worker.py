@@ -165,7 +165,9 @@ async def _permitted(connection, org: UUID, member: UUID) -> bool:
 async def _claim(connection, org: UUID) -> dict | None:
     if not await connection.scalar(
         text(
-            "SELECT id FROM crm.organizations WHERE id=:org AND status='active' FOR SHARE"
+            "SELECT id FROM crm.organizations WHERE id=:org AND status='active' "
+            "AND subscription_status IN ('trialing','active','past_due') "
+            "AND (subscription_ends_at IS NULL OR subscription_ends_at>now()) FOR SHARE"
         ),
         {"org": org},
     ):
@@ -506,12 +508,16 @@ async def finish(
     gap: tuple[datetime, datetime] | None = None,
 ) -> None:
     async with tenant_transaction(engine, org) as connection:
-        await connection.execute(
+        organization = await connection.scalar(
             text(
-                "SELECT id FROM crm.organizations WHERE id=:org AND status='active' FOR SHARE"
+                "SELECT id FROM crm.organizations WHERE id=:org AND status='active' "
+                "AND subscription_status IN ('trialing','active','past_due') "
+                "AND (subscription_ends_at IS NULL OR subscription_ends_at>now()) FOR SHARE"
             ),
             {"org": org},
         )
+        if not organization:
+            return
         current = (
             (
                 await connection.execute(

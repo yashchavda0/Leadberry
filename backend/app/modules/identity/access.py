@@ -13,6 +13,7 @@ from .service import (
     Principal,
     audit,
     authorize_mutation,
+    organization_access_mode,
     validate_permissions,
     validate_roles,
 )
@@ -202,6 +203,19 @@ async def update_membership(
             and not existing["has_session"]
         ):
             raise AccessError(409, "invitation_acceptance_required")
+        if body.status == "active" and existing["status"] != "active":
+            user_limit, active_and_invited = (
+                await connection.execute(
+                    text(
+                        "SELECT o.max_users,(SELECT count(*) FROM crm.organization_memberships m "
+                        "WHERE m.org_id=o.id AND m.status IN ('active','invited')) "
+                        "FROM crm.organizations o WHERE o.id=:org"
+                    ),
+                    {"org": principal.org_id},
+                )
+            ).one()
+            if active_and_invited >= user_limit:
+                raise AccessError(409, "user_limit_reached")
         if not principal.is_owner and (
             existing["is_owner"]
             or body.is_owner is not None
@@ -363,6 +377,11 @@ async def invite_member(
             ),
             {"email": str(body.email), "name": body.display_name},
         )
+        if await connection.scalar(
+            text("SELECT 1 FROM crm.platform_operators WHERE user_id=:user"),
+            {"user": user},
+        ):
+            raise AccessError(409, "identity_unavailable")
         member = (
             (
                 await connection.execute(
@@ -411,6 +430,18 @@ async def invite_member(
                 },
             )
         else:
+            limit, current_users = (
+                await connection.execute(
+                    text(
+                        "SELECT o.max_users,(SELECT count(*) FROM crm.organization_memberships m "
+                        "WHERE m.org_id=o.id AND m.status IN ('active','invited')) "
+                        "FROM crm.organizations o WHERE o.id=:org"
+                    ),
+                    {"org": principal.org_id},
+                )
+            ).one()
+            if current_users >= limit:
+                raise AccessError(409, "user_limit_reached")
             member_id = uuid4()
             await connection.execute(
                 text(
@@ -512,6 +543,8 @@ async def accept_invite(
             text("SELECT id FROM crm.organizations WHERE id=:org FOR UPDATE"),
             {"org": org},
         )
+        if await organization_access_mode(connection, org) != "full":
+            raise AccessError(403, "export_only_access")
         invite = (
             (
                 await connection.execute(

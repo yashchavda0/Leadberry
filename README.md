@@ -35,6 +35,8 @@ changing its proxy configuration. If using `CRM_BACKEND_URL`, set it to
 
 ## Implemented
 
+- Separate Platform Admin console for organization subscriptions, user limits,
+  access suspension, export-only periods, confirmed password resets and audit history.
 - Organization onboarding, protected Owner, login/logout, sessions and invitations.
 - Custom roles, page/action permissions, membership overrides and team management.
 - Centralized User management with Users, Teams, Roles and Permissions tabs,
@@ -72,6 +74,15 @@ on top of it. To run backend tests without browser installation:
 ```
 
 The runner creates and removes only a uniquely named disposable test database.
+Run only platform-administration integration and route-contract tests with:
+
+```powershell
+.\backend\.venv\Scripts\python.exe .\scripts\Run-PostgresTests.py --platform
+```
+
+Platform operators sign in at `/platform/login`; provisioning is an explicit
+database operation documented in [local setup](docs/DOCKER-SETUP.md). There is no
+operator signup or customer-navigation link.
 
 ### Follow-ups
 

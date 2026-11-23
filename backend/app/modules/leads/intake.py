@@ -13,7 +13,7 @@ from sqlalchemy import text
 from ...core.unit_of_work import UnitOfWork
 from ..identity.dependencies import User
 from ..identity.schemas import Input
-from ..identity.service import AccessError, audit, effective_access
+from ..identity.service import AccessError, audit, effective_access, organization_access_mode
 from .queries import access
 from .assignment_rules import route_new_lead
 from .routes import apply_status_rules
@@ -187,6 +187,8 @@ async def submit_lead(
         )
         if not organization:
             raise AccessError(401, "invalid_intake_key")
+        if await organization_access_mode(connection, org_id) != "full":
+            raise AccessError(403, "export_only_access")
         key = (
             (
                 await connection.execute(

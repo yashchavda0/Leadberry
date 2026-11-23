@@ -36,7 +36,20 @@ async def principal(
         csrf = csrf_token
         if not csrf:
             raise AccessError(403, "csrf_required")
-    return await identity(request).authenticate(token, csrf)
+    user = await identity(request).authenticate(token, csrf)
+    if user.password_change_required and request.url.path not in (
+        "/api/v1/auth/me",
+        "/api/v1/auth/password",
+        "/api/v1/auth/logout",
+    ):
+        raise AccessError(403, "password_change_required")
+    if (
+        user.access_mode == "export_only"
+        and request.method not in ("GET", "HEAD", "OPTIONS")
+        and request.url.path not in ("/api/v1/auth/logout", "/api/v1/auth/password")
+    ):
+        raise AccessError(403, "export_only_access")
+    return user
 
 
 User = Annotated[Principal, Depends(principal)]

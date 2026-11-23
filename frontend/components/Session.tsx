@@ -14,7 +14,7 @@ type Session = {
   reload: () => Promise<Identity | null>; can: (permission: string) => boolean; logout: () => Promise<void>;
 };
 const Context = createContext<Session | null>(null);
-const publicPaths = ["/login", "/onboarding", "/accept-invite"];
+const publicPaths = ["/login", "/onboarding", "/accept-invite", "/platform/login"];
 
 export function useSession() {
   const session = useContext(Context);
@@ -32,10 +32,16 @@ export default function SessionProvider({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const isPublic = publicPaths.includes(pathname);
+  const isPlatform = pathname.startsWith("/platform");
   const reload = useCallback(async () => {
     setError(""); setOutage(null);
     try {
       const current = await crm<Identity>("/auth/me");
+      setIdentity(current);
+      if (current.password_change_required) {
+        setOrganization(null);
+        return current;
+      }
       const org = await crm<Organization>("/organizations/me");
       setIdentity(current); setOrganization(org);
       return current;
@@ -46,7 +52,7 @@ export default function SessionProvider({ children }: { children: React.ReactNod
       return null;
     } finally { setPending(false); }
   }, []);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { if (!isPlatform) void reload(); else setPending(false); }, [isPlatform, reload]);
   useEffect(() => {
     const expire = () => { setIdentity(null); setOrganization(null); setError(""); setPending(false); };
     window.addEventListener("crm-session-expired", expire);
@@ -54,22 +60,27 @@ export default function SessionProvider({ children }: { children: React.ReactNod
   }, []);
   async function retry() { setRetrying(true); await reload(); setRetrying(false); }
   useEffect(() => {
-    if (!isPublic && !pending && !identity && !error) router.replace("/login");
-  }, [isPublic, pending, identity, error, router]);
+    if (!isPublic && !isPlatform && !pending && !identity && !error) router.replace("/login");
+  }, [isPublic, isPlatform, pending, identity, error, router]);
   useEffect(() => {
-    const focus = () => { if (!isPublic) void reload(); };
+    if (!isPublic && !isPlatform && !pending && identity?.password_change_required && pathname !== "/password-change") {
+      router.replace("/password-change");
+    }
+  }, [isPublic, isPlatform, pending, identity, pathname, router]);
+  useEffect(() => {
+    const focus = () => { if (!isPublic && !isPlatform) void reload(); };
     window.addEventListener("focus", focus);
     return () => window.removeEventListener("focus", focus);
-  }, [isPublic, reload]);
+  }, [isPublic, isPlatform, reload]);
   async function logout() {
     await crm<void>("/auth/logout", { method: "POST" });
     setIdentity(null); setOrganization(null); router.replace("/login");
   }
   const value: Session = { identity, organization, pending, error, reload, can: permission => Boolean(identity?.permissions.includes(permission)), logout };
   return <Context.Provider value={value}>
-    {isPublic ? children : pending ? <PageLoader label="Loading your workspace..." /> :
-      error ? (outage ? <ServiceUnavailable message={error} offline={outage.offline} retrying={retrying} onRetry={() => void retry()} /> : <div className="auth-container"><div className="card"><h1>Workspace unavailable</h1><p role="alert">{error}</p><button className="btn" onClick={() => void reload()}>Retry</button> <Link href="/login">Sign in</Link></div></div>) :
-        identity ? <div className="layout"><Sidebar /><div className="workspace"><Topbar /><main className="main">{children}</main></div></div> :
+    {isPlatform || isPublic ? children : pending ? <PageLoader label="Loading your workspace..." /> :
+      error ? (outage ? <ServiceUnavailable message={error} offline={outage.offline} retrying={retrying} onRetry={() => void retry()} /> : <div className="auth-container"><div className="card"><h1>Organization access unavailable</h1><p role="alert">{error}</p><button className="btn" onClick={() => void reload()}>Retry</button> <Link href="/login">Sign in</Link></div></div>) :
+        identity ? <div className="layout"><Sidebar /><div className="workspace"><Topbar />{identity.access_mode === "export_only" && <div className="subscription-readonly" role="status">Subscription ended. Your organization is in read-only mode; data export remains available.</div>}<main className="main">{children}</main></div></div> :
           <PageLoader label="Redirecting to sign in..." />}
   </Context.Provider>;
 }

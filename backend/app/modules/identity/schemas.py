@@ -27,6 +27,11 @@ class Login(Credentials):
     organization_slug: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{2,62}$")
 
 
+class PasswordChangeInput(Input):
+    current_password: SecretStr = Field(min_length=12, max_length=128)
+    new_password: SecretStr = Field(min_length=12, max_length=128)
+
+
 class Onboard(Login):
     organization_name: str = Field(min_length=1, max_length=200)
     full_name: str = Field(min_length=1, max_length=200)

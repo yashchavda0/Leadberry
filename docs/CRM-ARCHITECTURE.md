@@ -210,9 +210,10 @@ erDiagram
 | Table                                    | Important fields / invariant                                                                               |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `app_users`                              | Global normalized unique email, Argon2id password hash, verification time; no organization-level role here |
-| `organizations`                          | Unique slug, lifecycle state, timezone, profile, authorization/settings generations                        |
+| `organizations`                          | Unique slug, lifecycle/subscription state, plan dates, export window, user cap, profile and auth generations |
 | `organization_directory`                 | Minimal slug-to-organization routing; no lead/profile data                                                 |
 | `platform_operators`                     | Separate platform capability, not an organization role                                                     |
+| `platform_sessions`, `platform_audit_logs` | Separate operator sessions and actor-attributed platform administration history                            |
 | `organization_memberships`               | Unique organization/user pair, active/invited/disabled, protected `is_owner`, optional visibility override |
 | `roles`                                  | Organization-defined name and default own/team/all scope                                                   |
 | `permissions`                            | Global module/page/action catalog with delegability flag                                                   |

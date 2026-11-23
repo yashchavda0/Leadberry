@@ -139,6 +139,7 @@ async def apply_status_rules(
     status_id: UUID,
     values: dict,
     previous_status_id: UUID | None,
+    skip_auto_assignment: bool = False,
 ) -> None:
     entering = previous_status_id != status_id
     rule = None
@@ -174,14 +175,6 @@ async def apply_status_rules(
         .scalars()
         .all()
     )
-    category = await connection.scalar(
-        text(
-            "SELECT category FROM crm.lead_statuses " "WHERE org_id=:org AND id=:status"
-        ),
-        {"org": org_id, "status": status_id},
-    )
-    if category == "pending" and "next_follow_up_at" not in required:
-        required = [*required, "next_follow_up_at"]
     custom = values.get("custom_fields") or {}
     missing = [
         key
@@ -192,7 +185,7 @@ async def apply_status_rules(
         raise AccessError(422, "lead_required_fields_missing")
     if not entering or rule is None:
         return
-    if not rule["auto_assign"]:
+    if not rule["auto_assign"] or skip_auto_assignment:
         return
     eligible = (
         (
@@ -425,9 +418,6 @@ async def change_status(
         )
         if target_status is None:
             raise AccessError(422, "invalid_status")
-        if target_status["category"] == "pending" and body.next_follow_up_at is None:
-            raise AccessError(422, "lead_required_fields_missing")
-
         values = dict(lead)
         values["tags"] = list(lead["tags"] or [])
         values["custom_fields"] = dict(lead["custom_fields"] or {})

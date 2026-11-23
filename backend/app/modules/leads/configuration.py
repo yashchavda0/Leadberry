@@ -49,7 +49,16 @@ DEFAULT_COLUMNS = [
     "updated_at",
     "archived_at",
 ]
-DEFAULT_VISIBLE_COLUMNS = ["company", "email", "phone", "name", "status_changed_at", "status", "source_name", "received_at"]
+DEFAULT_VISIBLE_COLUMNS = [
+    "company",
+    "email",
+    "phone",
+    "name",
+    "status_changed_at",
+    "status",
+    "source_name",
+    "received_at",
+]
 
 
 class StatusInput(BaseModel):
@@ -67,6 +76,10 @@ class StatusInput(BaseModel):
         if not value:
             raise ValueError("Status name is required")
         return value
+
+
+class StatusCreateInput(StatusInput):
+    next_follow_up_required: bool = False
 
 
 class StatusRulesInput(BaseModel):
@@ -337,8 +350,13 @@ async def lead_status_options(request: Request, user: User):
 
 
 @router.post("/lead-statuses", status_code=201)
-async def create_status(body: StatusInput, request: Request, user: User):
+async def create_status(body: StatusCreateInput, request: Request, user: User):
     async with access(request, user, "settings.manage") as (connection, current):
+        if (
+            body.next_follow_up_required
+            and "assignment_rules.manage" not in current.permissions
+        ):
+            raise AccessError(403, "permission_denied")
         status_id = uuid4()
         await connection.execute(
             text(
@@ -354,6 +372,14 @@ async def create_status(body: StatusInput, request: Request, user: User):
                 "position": body.position,
             },
         )
+        if body.next_follow_up_required:
+            await connection.execute(
+                text(
+                    "INSERT INTO crm.lead_status_required_fields(org_id,status_id,field_key) "
+                    "VALUES(:org,:status,'next_follow_up_at')"
+                ),
+                {"org": current.org_id, "status": status_id},
+            )
         await audit(
             connection,
             current.org_id,

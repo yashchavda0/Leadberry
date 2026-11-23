@@ -102,7 +102,7 @@ credential-rate coordination and database uniqueness rather than Redis as its qu
 | `migrations/versions/0006_database_grants.py` | Least-privilege table grants for `crm_api`, `crm_auth` and `crm_worker`                                      |
 | `app/modules/marketplace/`                    | Provider catalog, encrypted account setup, lifecycle APIs and IndiaMART worker                               |
 
-Readiness expects `0006_database_grants` and checks both configured roles. Migrations do not
+Readiness expects the current Alembic head and checks the configured runtime role. Migrations do not
 run during API startup. Use the migration helper rather than applying the full
 [reference design SQL](../docs/database-schema.sql) on an Alembic-managed database.
 
@@ -122,6 +122,10 @@ existing business services rather than duplicating authentication or access logi
 | Roles and permissions   | `app/modules/identity/role_routes.py`    | Permission catalog and GET/POST/PUT role administration                                      |
 | Members and invitations | `app/modules/identity/memberships.py`    | Membership access updates and invitation issuance                                            |
 | Leads                   | `app/modules/leads/routes.py`            | Lead lists/options, creation, detail/update and archive/restore                              |
+| Follow-ups              | `app/modules/leads/follow_ups.py`        | Scoped queue, task history, completion, rescheduling and cancellation                        |
+| Lead activities         | `app/modules/leads/activities.py`        | Permission-scoped response activity timeline and logging                                    |
+| Website intake          | `app/modules/leads/intake.py`            | Revocable server credentials and idempotent lead submissions                                 |
+| Assignment rules        | `app/modules/leads/assignment_rules.py`  | Source-to-team routing configuration and preview                                             |
 | Teams                   | `app/modules/leads/teams.py`             | GET/POST/PUT team management                                                                 |
 | Dashboard               | `app/modules/leads/dashboard.py`         | Scoped dashboard statistics and recent leads                                                 |
 | Marketplace             | `app/modules/marketplace/routes.py`      | Catalog/accounts, credential replacement, test/sync, activation/pause/retirement and history |

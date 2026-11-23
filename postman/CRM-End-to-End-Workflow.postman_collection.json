@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "15ac628c-1a6e-4d84-b434-39f94939d75c",
+    "_postman_id": "ab9329bf-dfef-42e7-9f92-6657a94e0a35",
     "name": "CRM - End-to-End API Workflow",
     "description": "Ordered, stateful workflow generated from every currently implemented backend API. Import CRM-Workflow.postman_environment.json and run the collection in saved order. It creates a unique organization, roles, invitation/member, lead configuration, team, lead lifecycle, reports, and a dummy marketplace account. Dummy marketplace credentials can create and queue connector work, but an external provider test may later fail as expected because no real IndiaMART key is used. API and local database flows otherwise use live IDs and tokens.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -19,12 +19,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -55,7 +49,10 @@
                 "exec": [
                   "pm.test('00.01 Liveness', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -70,12 +67,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -106,7 +97,10 @@
                 "exec": [
                   "pm.test('00.02 Readiness', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -131,12 +125,6 @@
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -191,6 +179,9 @@
                   "pm.test('Organization created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('csrfToken', body.csrf_token);",
                   "pm.environment.set('organizationId', body.organization_id);"
@@ -208,17 +199,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -250,6 +230,9 @@
                   "pm.test('Owner identity loaded', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('ownerMembershipId', body.membership_id);",
                   "pm.environment.set('organizationId', body.organization_id);"
@@ -267,17 +250,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -308,7 +280,10 @@
                 "exec": [
                   "pm.test('01.03 Read organization', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -325,25 +300,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -379,7 +347,10 @@
                 "exec": [
                   "pm.test('01.04 Update organization', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -394,17 +365,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -435,7 +395,10 @@
                 "exec": [
                   "pm.test('01.05 Read owner profile', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -452,25 +415,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -506,7 +462,10 @@
                 "exec": [
                   "pm.test('01.06 Update owner profile', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -526,17 +485,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -567,6 +515,9 @@
                   "pm.test('Permissions loaded', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('rolePermissions', JSON.stringify(body.data.map(x => x.code)));"
                 ]
@@ -585,25 +536,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -639,6 +583,9 @@
                   "pm.test('Manager role created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('roleId', pm.response.json().id);",
                   "pm.environment.set('role_id', pm.response.json().id);"
                 ]
@@ -657,25 +604,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -711,7 +651,10 @@
                 "exec": [
                   "pm.test('02.03 Update manager role', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -728,24 +671,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/roles?{{limit}}&{{after}}&{{search}}",
+              "raw": "{{baseUrl}}/api/v1/roles",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -782,7 +714,10 @@
                 "exec": [
                   "pm.test('02.04 Verify roles', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -804,25 +739,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -858,6 +786,9 @@
                   "pm.test('Invitation created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('invitedMembershipId', body.membership_id);",
                   "pm.environment.set('membershipId', body.membership_id);",
@@ -877,17 +808,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -920,6 +840,9 @@
                   "pm.test('Invitation recovered', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('invitationToken', pm.response.json().invitation_token);"
                 ]
               }
@@ -940,12 +863,6 @@
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -986,6 +903,9 @@
                   "pm.test('Invitation accepted', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('memberCsrfToken', body.csrf_token);",
                   "pm.environment.set('csrfToken', body.csrf_token);"
@@ -1003,17 +923,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -1045,6 +954,9 @@
                   "pm.test('Member session loaded', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('invitedMembershipId', pm.response.json().membership_id);"
                 ]
               }
@@ -1062,25 +974,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1116,7 +1021,10 @@
                 "exec": [
                   "pm.test('03.05 Update invited member profile', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1136,12 +1044,6 @@
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -1182,6 +1084,9 @@
                   "pm.test('Owner logged in', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('csrfToken', pm.response.json().csrf_token);"
                 ]
               }
@@ -1204,24 +1109,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/memberships?{{limit}}&{{after}}",
+              "raw": "{{baseUrl}}/api/v1/memberships",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -1253,7 +1147,10 @@
                 "exec": [
                   "pm.test('04.02 List members', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1270,25 +1167,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1324,7 +1214,10 @@
                 "exec": [
                   "pm.test('04.03 Update member role and scope', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1341,20 +1234,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
+                "key": "X-Request-ID",
+                "value": "{{$guid}}",
+                "type": "text"
               },
               {
                 "key": "X-CSRF-Token",
                 "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
-                "key": "X-Request-ID",
-                "value": "{{$guid}}",
                 "type": "text"
               }
             ],
@@ -1381,7 +1267,10 @@
                 "exec": [
                   "pm.test('04.04 Disable member', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1398,25 +1287,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1452,7 +1334,10 @@
                 "exec": [
                   "pm.test('04.03 Update member role and scope', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1472,17 +1357,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -1513,6 +1387,9 @@
                   "pm.test('Statuses loaded', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const statuses = pm.response.json().data;",
                   "const defaultStatus = statuses.find(x => x.is_default);",
                   "pm.environment.set('defaultStatusId', defaultStatus.id);"
@@ -1532,25 +1409,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1586,6 +1456,9 @@
                   "pm.test('Workflow status created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('statusId', pm.response.json().id);",
                   "pm.environment.set('status_id', pm.response.json().id);",
                   "pm.environment.set('newStatusId', pm.response.json().id);"
@@ -1603,17 +1476,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -1643,7 +1505,10 @@
                 "exec": [
                   "pm.test('05.03 Status options', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1660,25 +1525,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1714,7 +1572,10 @@
                 "exec": [
                   "pm.test('05.04 Update workflow status', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1731,25 +1592,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1786,7 +1640,10 @@
                 "exec": [
                   "pm.test('05.05 Configure status rules', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1806,17 +1663,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -1846,7 +1692,10 @@
                 "exec": [
                   "pm.test('06.01 List custom fields', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -1863,25 +1712,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1917,6 +1759,9 @@
                   "pm.test('Custom field created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('customFieldKey', pm.response.json().field_key);"
                 ]
               }
@@ -1934,25 +1779,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -1988,7 +1826,10 @@
                 "exec": [
                   "pm.test('06.03 Update custom field', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2003,17 +1844,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -2043,7 +1873,10 @@
                 "exec": [
                   "pm.test('06.04 Read table preferences', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2060,25 +1893,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -2113,7 +1939,10 @@
                 "exec": [
                   "pm.test('06.05 Save table preferences', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2135,24 +1964,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/teams?{{limit}}&{{after}}&{{q}}",
+              "raw": "{{baseUrl}}/api/v1/teams",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -2189,7 +2007,10 @@
                 "exec": [
                   "pm.test('07.01 List teams', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2206,25 +2027,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -2260,6 +2074,9 @@
                   "pm.test('Team created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('teamId', pm.response.json().id);",
                   "pm.environment.set('team_id', pm.response.json().id);"
                 ]
@@ -2278,25 +2095,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -2332,7 +2142,10 @@
                 "exec": [
                   "pm.test('07.03 Update team', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2352,17 +2165,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -2393,7 +2195,10 @@
                 "exec": [
                   "pm.test('08.01 Lead options', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2410,24 +2215,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/leads/assignees?{{limit}}&{{after}}&{{q}}",
+              "raw": "{{baseUrl}}/api/v1/leads/assignees",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -2465,7 +2259,10 @@
                 "exec": [
                   "pm.test('08.02 Assignment options', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2482,25 +2279,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -2536,6 +2326,9 @@
                   "pm.test('Lead created', function () {",
                   "  pm.expect([201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('leadId', body.id);",
                   "pm.environment.set('lead_id', body.id);",
@@ -2556,24 +2349,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/leads?{{limit}}&{{after}}&{{q}}&{{status_id}}&{{source}}&{{integration_id}}&{{backfill_id}}&{{source_record_id}}&{{tag}}&{{assignee}}&{{start}}&{{end}}&{{archived}}&{{status_start}}&{{status_end}}",
+              "raw": "{{baseUrl}}/api/v1/leads",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -2670,7 +2452,10 @@
                 "exec": [
                   "pm.test('08.04 List leads', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2685,17 +2470,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -2727,6 +2501,9 @@
                   "pm.test('Lead loaded', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('leadRowVersion', pm.response.json().row_version);"
                 ]
               }
@@ -2744,25 +2521,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -2799,6 +2569,9 @@
                   "pm.test('Lead updated', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('leadRowVersion', pm.response.json().row_version);"
                 ]
               }
@@ -2816,25 +2589,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -2872,6 +2638,9 @@
                   "pm.test('Lead status changed', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('leadRowVersion', pm.response.json().row_version);"
                 ]
               }
@@ -2887,17 +2656,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -2929,7 +2687,10 @@
                 "exec": [
                   "pm.test('08.08 Status history', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -2946,25 +2707,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -3002,6 +2756,9 @@
                   "pm.test('Lead archived', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('leadRowVersion', pm.response.json().row_version);"
                 ]
               }
@@ -3019,25 +2776,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -3075,6 +2825,9 @@
                   "pm.test('Lead restored', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('leadRowVersion', pm.response.json().row_version);"
                 ]
               }
@@ -3097,24 +2850,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/dashboard?{{start}}&{{end}}",
+              "raw": "{{baseUrl}}/api/v1/dashboard",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -3146,7 +2888,10 @@
                 "exec": [
                   "pm.test('09.01 Dashboard', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3163,24 +2908,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/reports/leads?{{start}}&{{end}}",
+              "raw": "{{baseUrl}}/api/v1/reports/leads",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -3213,7 +2947,10 @@
                 "exec": [
                   "pm.test('09.02 Lead report', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3230,24 +2967,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/reports/leads/export?{{start}}&{{end}}",
+              "raw": "{{baseUrl}}/api/v1/reports/leads/export",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -3281,7 +3007,10 @@
                 "exec": [
                   "pm.test('09.03 Export report', function () {",
                   "  pm.expect([200]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3298,24 +3027,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/leads/export?{{q}}&{{status_id}}&{{source}}&{{integration_id}}&{{backfill_id}}&{{source_record_id}}&{{tag}}&{{assignee}}&{{start}}&{{end}}&{{archived}}&{{status_start}}&{{status_end}}",
+              "raw": "{{baseUrl}}/api/v1/leads/export",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -3403,7 +3121,10 @@
                 "exec": [
                   "pm.test('09.04 Export leads', function () {",
                   "  pm.expect([200]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3423,17 +3144,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -3464,7 +3174,10 @@
                 "exec": [
                   "pm.test('10.01 Marketplace providers', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3481,24 +3194,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/marketplace/accounts?{{after}}&{{limit}}",
+              "raw": "{{baseUrl}}/api/v1/marketplace/accounts",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -3531,7 +3233,10 @@
                 "exec": [
                   "pm.test('10.02 List marketplace accounts', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3548,25 +3253,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -3586,7 +3284,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider_code\": \"indiamart\",\n  \"name\": \"Postman Dummy Connector\",\n  \"config\": {},\n  \"credentials\": {\n    \"crm_key\": \"dummy-crm-key-for-workflow\"\n  },\n  \"sync_interval_seconds\": 900,\n  \"import_history\": false,\n  \"row_version\": null\n}",
+              "raw": "{\n  \"provider_code\": \"indiamart\",\n  \"name\": \"Postman Dummy Connector\",\n  \"config\": {\n    \"mobile\": \"9876543210\"\n  },\n  \"credentials\": {\n    \"crm_key\": \"dummy-crm-key-for-workflow\"\n  },\n  \"sync_interval_seconds\": 900,\n  \"import_history\": false,\n  \"row_version\": null\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3608,8 +3306,11 @@
                   "  pm.environment.set('accountId', body.id);",
                   "  pm.environment.set('account_id', body.id);",
                   "  pm.environment.set('accountRowVersion', body.row_version);",
-                  "} else {",
+                  "} else if (pm.response.code === 503) {",
+                  "  console.warn('Marketplace flow skipped: configure marketplace public key first.');",
                   "  pm.execution.setNextRequest('11.01 Refresh owner session');",
+                  "} else {",
+                  "  pm.execution.setNextRequest(null);",
                   "}"
                 ]
               }
@@ -3627,25 +3328,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -3666,7 +3360,7 @@
             "description": "",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"provider_code\": \"indiamart\",\n  \"name\": \"Postman Dummy Connector Updated\",\n  \"config\": {},\n  \"credentials\": {},\n  \"row_version\": {{accountRowVersion}}\n}",
+              "raw": "{\n  \"provider_code\": \"indiamart\",\n  \"name\": \"Postman Dummy Connector Updated\",\n  \"config\": {\n    \"mobile\": \"9876543210\"\n  },\n  \"credentials\": {},\n  \"row_version\": {{accountRowVersion}}\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3683,6 +3377,9 @@
                   "pm.test('Marketplace account updated', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "pm.environment.set('accountRowVersion', body.row_version);"
                 ]
@@ -3701,25 +3398,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -3758,6 +3448,9 @@
                   "pm.test('Marketplace schedule updated', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('accountRowVersion', pm.response.json().row_version);"
                 ]
               }
@@ -3775,25 +3468,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -3832,6 +3518,9 @@
                   "pm.test('Backfill request created', function () {",
                   "  pm.expect([200, 201]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const body = pm.response.json();",
                   "const candidate = body.backfill_id || (body.backfill && body.backfill.id);",
                   "if (candidate) {",
@@ -3852,17 +3541,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -3896,6 +3574,9 @@
                   "pm.test('Account backfills loaded', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "const rows = pm.response.json().data || [];",
                   "if (rows[0]) {",
                   "  pm.environment.set('backfillId', rows[0].id);",
@@ -3917,24 +3598,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/marketplace/backfills?{{account_id}}&{{state}}&{{kind}}&{{after}}&{{limit}}",
+              "raw": "{{baseUrl}}/api/v1/marketplace/backfills",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -3982,7 +3652,10 @@
                 "exec": [
                   "pm.test('10.08 List all import requests', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -3999,24 +3672,13 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
                 "type": "text"
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/marketplace/accounts/{{account_id}}/backfills/{{backfill_id}}/windows?{{after}}&{{limit}}",
+              "raw": "{{baseUrl}}/api/v1/marketplace/accounts/{{account_id}}/backfills/{{backfill_id}}/windows",
               "host": [
                 "{{baseUrl}}"
               ],
@@ -4053,7 +3715,10 @@
                 "exec": [
                   "pm.test('10.09 List backfill windows', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -4070,25 +3735,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -4128,7 +3786,10 @@
                 "exec": [
                   "pm.test('10.10 Cancel backfill request', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -4145,25 +3806,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -4210,7 +3864,10 @@
                 "exec": [
                   "pm.test('10.11 Queue connector test', function () {",
                   "  pm.expect([200]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -4225,17 +3882,6 @@
                 "key": "Accept",
                 "value": "application/json",
                 "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text"
-              },
-              {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": true
               },
               {
                 "key": "X-Request-ID",
@@ -4268,7 +3914,10 @@
                 "exec": [
                   "pm.test('10.12 List connector runs', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }
@@ -4290,25 +3939,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -4336,6 +3978,9 @@
                   "pm.test('Owner session refreshed', function () {",
                   "  pm.expect([200, 201, 204]).to.include(pm.response.code);",
                   "});",
+                  "if (![ 200, 201, 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}",
                   "pm.environment.set('csrfToken', pm.response.json().csrf_token);"
                 ]
               }
@@ -4353,25 +3998,18 @@
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "dummy",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "Content-Type",
                 "value": "application/json",
                 "type": "text"
               },
               {
-                "key": "X-CSRF-Token",
-                "value": "{{csrfToken}}",
-                "type": "text",
-                "disabled": false
-              },
-              {
                 "key": "X-Request-ID",
                 "value": "{{$guid}}",
+                "type": "text"
+              },
+              {
+                "key": "X-CSRF-Token",
+                "value": "{{csrfToken}}",
                 "type": "text"
               }
             ],
@@ -4398,7 +4036,10 @@
                 "exec": [
                   "pm.test('11.02 Logout owner', function () {",
                   "  pm.expect([204]).to.include(pm.response.code);",
-                  "});"
+                  "});",
+                  "if (![ 204 ].includes(pm.response.code)) {",
+                  "  pm.execution.setNextRequest(null);",
+                  "}"
                 ]
               }
             }

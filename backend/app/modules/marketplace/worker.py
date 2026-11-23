@@ -21,6 +21,7 @@ from ...core.database import (
 )
 from ...core.settings import Settings
 from ..identity.service import AccessError, audit, effective_access
+from ..leads.assignment_rules import route_new_lead
 from . import adapters, indiamart
 from .catalog import provider
 from .crypto import decrypt_credentials
@@ -605,6 +606,9 @@ async def finish(
                     )
                     row = (await connection.execute(text(LEAD_UPSERT), values)).one()
                     if row.created:
+                        await route_new_lead(
+                            connection, org, run["provider_code"], row.id
+                        )
                         accepted += 1
                         await audit(
                             connection, org, None, "marketplace.lead_received", row.id

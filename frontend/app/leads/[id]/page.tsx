@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useState, type CSSProperties } from "react";
 import DOMPurify from "isomorphic-dompurify";
 import LeadForm from "@/components/LeadForm";
+import FollowUpHistory from "@/components/follow-ups/FollowUpHistory";
+import LeadActivities from "@/components/LeadActivities";
 import { Guard, useSession } from "@/components/Session";
 import Icon from "@/components/Icon";
 import { Badge } from "@/components/ui/badge";
@@ -193,11 +195,11 @@ function Detail() {
             {statusHistory.data?.data.length ? [...statusHistory.data.data].reverse().map(entry => <LeadEvent key={entry.id} title={`Status changed: ${entry.from_status} to ${entry.to_status}`} date={formatDate(entry.created_at)} note={entry.note} actor={entry.actor_name} />) : <LeadEvent title={`Status: ${lead.status}`} date={formatDate(lead.status_changed_at)} />}
             <LeadEvent title="Lead updated" date={formatDate(lead.updated_at)} />
             {statusHistory.error && <ErrorNotice error={statusHistory.error} />}
-          </div></TabsContent>
+          </div><LeadActivities leadId={lead.id} editable={can("leads.edit") && !lead.archived_at} /></TabsContent>
           <TabsContent value="follow-up" className="lead-detail-content"><div className="lead-followup-panel">
             <div><span className="field-label">Next follow-up</span><strong>{formatDate(lead.next_follow_up_at)}</strong></div>
             <div><span className="field-label">Tags</span><div className="tag-list">{lead.tags.length ? lead.tags.map(tag => <span className="tag" key={tag}>{tag}</span>) : <span className="muted">No tags</span>}</div></div>
-            <p className="muted">No follow-up notes are recorded for this lead.</p>
+            <FollowUpHistory key={lead.row_version} leadId={lead.id} />
           </div></TabsContent>
           <TabsContent value="enquiry" className="lead-detail-content"><div className="lead-enquiry-panel">
             <div className="lead-enquiry-heading"><span className="eyebrow">PRODUCT ENQUIRED</span><h2>{lead.product || "Product not specified"}</h2></div>

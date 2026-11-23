@@ -20,6 +20,7 @@ GROUPS = {
         "/auth/refresh": {"post"},
         "/auth/logout": {"post"},
         "/auth/me": {"get"},
+        "/auth/profile": {"get", "put"},
     },
     "Organizations": {
         "/organizations/onboard": {"post"},
@@ -33,6 +34,7 @@ GROUPS = {
     "Members and invitations": {
         "/memberships": {"get"},
         "/memberships/{membership_id}": {"put", "delete"},
+        "/memberships/{membership_id}/invitation": {"get"},
         "/invitations": {"post"},
     },
     "Leads": {
@@ -42,6 +44,7 @@ GROUPS = {
         "/leads/assignees": {"get"},
         "/leads/{lead_id}": {"get", "put"},
         "/leads/{lead_id}/status-history": {"get"},
+        "/leads/{lead_id}/activities": {"get", "post"},
         "/leads/{lead_id}/status": {"post"},
         "/leads/{lead_id}/archive": {"post"},
         "/leads/{lead_id}/restore": {"post"},
@@ -54,6 +57,24 @@ GROUPS = {
         "/lead-custom-fields": {"get", "post"},
         "/lead-custom-fields/{field_key}": {"put"},
         "/lead-table-preferences": {"get", "put"},
+    },
+    "Follow-ups": {
+        "/follow-ups": {"get"},
+        "/leads/{lead_id}/follow-ups": {"get"},
+        "/follow-ups/{task_id}/complete": {"post"},
+        "/follow-ups/{task_id}/reschedule": {"post"},
+        "/follow-ups/{task_id}/cancel": {"post"},
+    },
+    "Website intake": {
+        "/intake/keys": {"get", "post"},
+        "/intake/keys/{key_id}": {"delete"},
+        "/intake/leads": {"post"},
+    },
+    "Assignment rules": {
+        "/assignment-rules": {"get"},
+        "/assignment-rules/teams": {"get"},
+        "/assignment-rules/{source}": {"put"},
+        "/assignment-rules/{source}/preview": {"get"},
     },
     "Teams": {
         "/teams": {"get", "post"},

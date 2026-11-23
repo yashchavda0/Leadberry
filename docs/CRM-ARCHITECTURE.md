@@ -37,27 +37,30 @@ parents. Group Select all respects the caller's grant ceiling; Clear removes rol
 grants or resets direct overrides to role defaults. Landing preferences are checked
 against the resulting access when saved; sign-in falls back to an accessible page
 if permissions were later revoked. `/account` always remains available.
-Workers, reports/exports, provider credential encryption, MFA and email
-verification/recovery/delivery remain future work. The proposed large-data/concurrency
-targets below are not measured capacity.
+Marketplace workers, reports/exports, provider credential encryption and scoped
+website intake are implemented in the application. Lead response activities are
+manually logged, actor-attributed events; they are not inferred from status changes
+or verified by communication providers. MFA, password recovery, email verification
+and delivery remain future work. The proposed large-data/concurrency targets below
+are not measured capacity.
 Do not apply the full reference SQL on top of the Alembic-managed schema.
 
 ## 1. Product scope and decisions
 
 ### Included features
 
-| Module | Features |
-|---|---|
-| Organizations | Registration, protected initial Owner, organization profile, timezone, settings, suspension, organization switching |
-| Identity | Login, invitation acceptance, verification, password recovery, sessions, optional MFA, recovery codes |
-| Users and access | Multiple memberships, multiple roles, page/action permissions, direct allow/deny overrides, own/team/all data scope, explicit lead sharing |
-| Leads | Consolidated table, details, typed custom fields, tags, saved views, search/filter/sort, assignment, status changes, remarks, follow-ups, activity history, archive/restore |
-| Marketplace and API intake | Provider catalog, encrypted credentials, field mappings, raw receipts, pull/webhook adapters, test connection, durable intake, retries, backfill, idempotency |
-| Assignment | Manual/bulk assignment, round robin, least open leads, fixed recipient, source/marketplace conditions, no-eligible-user fallback |
-| Reports | Source/status/user/time/conversion/aging/unassigned/follow-up reports, drill-down, CSV/Excel download jobs, Download Center |
-| Analytics | Permission-filtered KPI cards, trends, comparisons, connector health, recent leads, freshness indicators |
-| Developer tools | Scoped API keys, generated API documentation, intake status, API activity, outbound signed webhooks |
-| Operations | Immutable application audit trail, observability, quotas, backups, retention, replay, dead-letter management |
+| Module                     | Features                                                                                                                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Organizations              | Registration, protected initial Owner, organization profile, timezone, settings, suspension, organization switching                                                         |
+| Identity                   | Login, invitation acceptance, verification, password recovery, sessions, optional MFA, recovery codes                                                                       |
+| Users and access           | Multiple memberships, multiple roles, page/action permissions, direct allow/deny overrides, own/team/all data scope, explicit lead sharing                                  |
+| Leads                      | Consolidated table, details, typed custom fields, tags, saved views, search/filter/sort, assignment, status changes, remarks, follow-ups, activity history, archive/restore |
+| Marketplace and API intake | Provider catalog, encrypted credentials, field mappings, raw receipts, pull/webhook adapters, test connection, durable intake, retries, backfill, idempotency               |
+| Assignment                 | Manual/bulk assignment, round robin, least open leads, fixed recipient, source/marketplace conditions, no-eligible-user fallback                                            |
+| Reports                    | Source/status/user/time/conversion/aging/unassigned/follow-up reports, drill-down, CSV/Excel download jobs, Download Center                                                 |
+| Analytics                  | Permission-filtered KPI cards, trends, comparisons, connector health, recent leads, freshness indicators                                                                    |
+| Developer tools            | Scoped API keys, generated API documentation, intake status, API activity, outbound signed webhooks                                                                         |
+| Operations                 | Immutable application audit trail, observability, quotas, backups, retention, replay, dead-letter management                                                                |
 
 Not included: inventory, invoicing, billing implementation, campaigns, quotations, or a full opportunity pipeline. Firebase push delivery and audience/campaign messaging are not lead-marketplace features and are outside the initial release.
 
@@ -78,22 +81,22 @@ Not included: inventory, invoicing, billing implementation, campaigns, quotation
 
 These are proposed acceptance targets, not benchmark results or hosting guarantees. Confirm them against expected customer usage before procurement.
 
-| Dimension | Initial sizing/test baseline |
-|---|---|
-| Organizations | 100 active organizations, deliberately uneven distribution |
-| Memberships | 10,000 total, 500 simultaneously active users |
-| Lead data | 10 million total; at least one organization with 1 million |
-| Interactive traffic | 100 requests/second sustained; 250/second bursts |
-| Intake | 50 accepted lead events/second sustained; 200/second bursts with queue buffering |
-| Default table request | p95 <= 300 ms server time for 50 rows, excluding a separate exact-count operation |
-| Indexed supported searches | p95 <= 750 ms on the documented representative query set |
-| Cached analytics | p95 <= 500 ms; uncached bounded analytics <= 2 seconds or become async |
-| Accepted webhook | p95 <= 500 ms after validation and durable receipt commit, excluding provider latency |
-| Intake freshness | 95% of accepted events processed within 60 seconds under sustained test load |
-| Dashboard freshness | Normally <= 60 seconds behind processed changes; show actual watermark |
-| Exports | Default cap 1 million contributing leads; 2 active exports/organization; 1 active heavy export/database initially |
-| Availability goal | 99.9% monthly for the hosted service, dependent on the selected infrastructure |
-| Recovery targets | RPO <= 5 minutes, RTO <= 60 minutes, demonstrated by restore drills |
+| Dimension                  | Initial sizing/test baseline                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Organizations              | 100 active organizations, deliberately uneven distribution                                                        |
+| Memberships                | 10,000 total, 500 simultaneously active users                                                                     |
+| Lead data                  | 10 million total; at least one organization with 1 million                                                        |
+| Interactive traffic        | 100 requests/second sustained; 250/second bursts                                                                  |
+| Intake                     | 50 accepted lead events/second sustained; 200/second bursts with queue buffering                                  |
+| Default table request      | p95 <= 300 ms server time for 50 rows, excluding a separate exact-count operation                                 |
+| Indexed supported searches | p95 <= 750 ms on the documented representative query set                                                          |
+| Cached analytics           | p95 <= 500 ms; uncached bounded analytics <= 2 seconds or become async                                            |
+| Accepted webhook           | p95 <= 500 ms after validation and durable receipt commit, excluding provider latency                             |
+| Intake freshness           | 95% of accepted events processed within 60 seconds under sustained test load                                      |
+| Dashboard freshness        | Normally <= 60 seconds behind processed changes; show actual watermark                                            |
+| Exports                    | Default cap 1 million contributing leads; 2 active exports/organization; 1 active heavy export/database initially |
+| Availability goal          | 99.9% monthly for the hosted service, dependent on the selected infrastructure                                    |
+| Recovery targets           | RPO <= 5 minutes, RTO <= 60 minutes, demonstrated by restore drills                                               |
 
 500 active users does not mean 500 database connections. Browser inactivity, request duration, connection pools, and worker backpressure determine actual database concurrency.
 
@@ -110,27 +113,27 @@ Start smaller in development. Scale only after query profiling and mixed-load te
 
 ## 3. Technology selection
 
-| Layer | Technology | Purpose and constraints |
-|---|---|---|
-| Frontend | Existing Next.js App Router, React, TypeScript | Preserve the prototype stack; use supported patched releases and lock dependencies before production |
-| UI | Tailwind CSS, shadcn/ui, accessible Radix-based primitives | Responsive forms, dialogs, tables and permission editor |
-| Server data | TanStack Query | Request caching, cancellation, invalidation, cursor lists, job polling |
-| Table | TanStack Table + TanStack Virtual | Server-side filtering/sorting, column layouts and bounded rendering |
-| Forms | React Hook Form + Zod | Client validation; backend remains authoritative |
-| Charts | Recharts | KPI/trend/source/status charts with tabular accessible alternatives |
-| API client | OpenAPI-generated TypeScript types | Avoid frontend/backend contract drift |
-| Backend | Python 3.12+, FastAPI, Pydantic v2, Uvicorn | Typed modular HTTP API; use asynchronous I/O |
-| Persistence | SQLAlchemy 2 async + psycopg 3 async | Explicit transactions and typed repositories |
-| Migrations | Alembic | Reviewed, versioned schema and data migrations |
-| Database | PostgreSQL 16+ | Transactions, composite FKs, JSONB, full-text search, RLS |
-| Connections | PgBouncer transaction pooling | Bounded server connections; all request context uses transaction-local settings |
-| Workers | arq + Redis | Async intake, exports, retry dispatch; PostgreSQL tracks durable state |
-| Provider HTTP | httpx | Explicit deadlines, response validation, connection reuse |
-| Authentication | Argon2id, PyJWT, standards-based TOTP library | Password hashing, short-lived JWTs, MFA; no home-grown cryptography |
-| Secret protection | cryptography AES-GCM + managed KMS | Envelope encryption and key rotation |
-| Export/import | Python csv, XlsxWriter constant-memory writer | Stream data; avoid loading large pandas dataframes in API memory |
-| Telemetry | Structured JSON logs, OpenTelemetry, Prometheus/Grafana | Correlation, latency, queue age, database pressure; redact PII/secrets |
-| Validation | pytest, HTTPX/respx, real PostgreSQL integration tests, Playwright, k6 | Contract, tenant/access, UI, failure and load tests |
+| Layer             | Technology                                                             | Purpose and constraints                                                                              |
+| ----------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Frontend          | Existing Next.js App Router, React, TypeScript                         | Preserve the prototype stack; use supported patched releases and lock dependencies before production |
+| UI                | Tailwind CSS, shadcn/ui, accessible Radix-based primitives             | Responsive forms, dialogs, tables and permission editor                                              |
+| Server data       | TanStack Query                                                         | Request caching, cancellation, invalidation, cursor lists, job polling                               |
+| Table             | TanStack Table + TanStack Virtual                                      | Server-side filtering/sorting, column layouts and bounded rendering                                  |
+| Forms             | React Hook Form + Zod                                                  | Client validation; backend remains authoritative                                                     |
+| Charts            | Recharts                                                               | KPI/trend/source/status charts with tabular accessible alternatives                                  |
+| API client        | OpenAPI-generated TypeScript types                                     | Avoid frontend/backend contract drift                                                                |
+| Backend           | Python 3.12+, FastAPI, Pydantic v2, Uvicorn                            | Typed modular HTTP API; use asynchronous I/O                                                         |
+| Persistence       | SQLAlchemy 2 async + psycopg 3 async                                   | Explicit transactions and typed repositories                                                         |
+| Migrations        | Alembic                                                                | Reviewed, versioned schema and data migrations                                                       |
+| Database          | PostgreSQL 16+                                                         | Transactions, composite FKs, JSONB, full-text search, RLS                                            |
+| Connections       | PgBouncer transaction pooling                                          | Bounded server connections; all request context uses transaction-local settings                      |
+| Workers           | arq + Redis                                                            | Async intake, exports, retry dispatch; PostgreSQL tracks durable state                               |
+| Provider HTTP     | httpx                                                                  | Explicit deadlines, response validation, connection reuse                                            |
+| Authentication    | Argon2id, PyJWT, standards-based TOTP library                          | Password hashing, short-lived JWTs, MFA; no home-grown cryptography                                  |
+| Secret protection | cryptography AES-GCM + managed KMS                                     | Envelope encryption and key rotation                                                                 |
+| Export/import     | Python csv, XlsxWriter constant-memory writer                          | Stream data; avoid loading large pandas dataframes in API memory                                     |
+| Telemetry         | Structured JSON logs, OpenTelemetry, Prometheus/Grafana                | Correlation, latency, queue age, database pressure; redact PII/secrets                               |
+| Validation        | pytest, HTTPX/respx, real PostgreSQL integration tests, Playwright, k6 | Contract, tenant/access, UI, failure and load tests                                                  |
 
 Redis is not officially a native Windows server deployment target. For Docker-free Windows development, use a managed Redis-compatible service or Redis in WSL2 if permitted. PostgreSQL, Python and Node.js run natively on Windows. Do not rely on an obsolete unofficial Redis Windows build.
 
@@ -204,25 +207,25 @@ erDiagram
 
 ### 5.3 Identity, membership and permissions
 
-| Table | Important fields / invariant |
-|---|---|
-| `app_users` | Global normalized unique email, Argon2id password hash, verification time; no organization-level role here |
-| `organizations` | Unique slug, lifecycle state, timezone, profile, authorization/settings generations |
-| `organization_directory` | Minimal slug-to-organization routing; no lead/profile data |
-| `platform_operators` | Separate platform capability, not an organization role |
-| `organization_memberships` | Unique organization/user pair, active/invited/disabled, protected `is_owner`, optional visibility override |
-| `roles` | Organization-defined name and default own/team/all scope |
-| `permissions` | Global module/page/action catalog with delegability flag |
-| `role_permissions` | Tenant-bound role-to-permission relation |
-| `membership_roles` | Multiple roles per organization membership |
-| `membership_permission_overrides` | Explicit allow/deny per permission, including who changed it |
-| `teams`, `team_memberships` | Organization-scoped team membership |
-| `organization_settings` | MFA requirement, retention, export quotas, duplicate/security policy |
-| `auth_sessions` | Membership-bound session, refresh family, MFA verification, expiry/revocation |
-| `session_refresh_tokens` | Hashed refresh-token history, consumed markers for reuse detection |
-| `auth_tokens` | Hashed, expiring, one-time email verification/password reset tokens |
-| `organization_invitations` | Hashed invitation token tied to the exact membership |
-| `user_mfa_factors`, `mfa_recovery_codes` | Encrypted verified TOTP factors and hashed one-time recovery codes |
+| Table                                    | Important fields / invariant                                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `app_users`                              | Global normalized unique email, Argon2id password hash, verification time; no organization-level role here |
+| `organizations`                          | Unique slug, lifecycle state, timezone, profile, authorization/settings generations                        |
+| `organization_directory`                 | Minimal slug-to-organization routing; no lead/profile data                                                 |
+| `platform_operators`                     | Separate platform capability, not an organization role                                                     |
+| `organization_memberships`               | Unique organization/user pair, active/invited/disabled, protected `is_owner`, optional visibility override |
+| `roles`                                  | Organization-defined name and default own/team/all scope                                                   |
+| `permissions`                            | Global module/page/action catalog with delegability flag                                                   |
+| `role_permissions`                       | Tenant-bound role-to-permission relation                                                                   |
+| `membership_roles`                       | Multiple roles per organization membership                                                                 |
+| `membership_permission_overrides`        | Explicit allow/deny per permission, including who changed it                                               |
+| `teams`, `team_memberships`              | Organization-scoped team membership                                                                        |
+| `organization_settings`                  | MFA requirement, retention, export quotas, duplicate/security policy                                       |
+| `auth_sessions`                          | Membership-bound session, refresh family, MFA verification, expiry/revocation                              |
+| `session_refresh_tokens`                 | Hashed refresh-token history, consumed markers for reuse detection                                         |
+| `auth_tokens`                            | Hashed, expiring, one-time email verification/password reset tokens                                        |
+| `organization_invitations`               | Hashed invitation token tied to the exact membership                                                       |
+| `user_mfa_factors`, `mfa_recovery_codes` | Encrypted verified TOTP factors and hashed one-time recovery codes                                         |
 
 The Owner is granted every organization permission by the permission evaluator, including future catalog additions. A custom role cannot remove Owner access. Only an existing Owner may grant/revoke Owner capability.
 
@@ -230,19 +233,19 @@ The schema serializes membership/status administration by updating an organizati
 
 ### 5.4 Lead model and customization
 
-| Table | Purpose / invariant |
-|---|---|
-| `leads` | Canonical lead record; contact information, status, source, assignment, received time, JSONB custom values, field provenance, archive/delete state, version |
-| `lead_source_records` | Unique `(org_id, integration_id, external_id)` independent of received timestamp; multiple source identities can point to one reviewed merged lead |
-| `lead_statuses` | Active/default flags, ordering and stable new/pending/working/won/lost category |
-| `custom_field_definitions` | Immutable field key/type after use, required/filterable/listing/sensitive flags, validation and definition version |
-| `custom_field_options` | Stable option keys, labels, ordering and deactivation |
-| `tags`, `lead_tags` | Easy organization tags, many-to-many lead tagging with reverse filter index |
-| `lead_shares` | Explicit expiring visibility grants to selected memberships; never grants an action permission |
-| `lead_activities` | Structured old/new changes plus notes, actor/integration, immutable lead version |
-| `lead_assignment_history` | Previous/new member, actor/rule and assignment reason, unique by lead/version |
-| `follow_ups` | Assigned reminder, due/completed/cancelled timestamps and row version |
-| `duplicate_candidates` | Ordered pairs of leads with phone/email/manual match reason and review state |
+| Table                      | Purpose / invariant                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `leads`                    | Canonical lead record; contact information, status, source, assignment, received time, JSONB custom values, field provenance, archive/delete state, version |
+| `lead_source_records`      | Unique `(org_id, integration_id, external_id)` independent of received timestamp; multiple source identities can point to one reviewed merged lead          |
+| `lead_statuses`            | Active/default flags, ordering and stable new/pending/working/won/lost category                                                                             |
+| `custom_field_definitions` | Immutable field key/type after use, required/filterable/listing/sensitive flags, validation and definition version                                          |
+| `custom_field_options`     | Stable option keys, labels, ordering and deactivation                                                                                                       |
+| `tags`, `lead_tags`        | Easy organization tags, many-to-many lead tagging with reverse filter index                                                                                 |
+| `lead_shares`              | Explicit expiring visibility grants to selected memberships; never grants an action permission                                                              |
+| `lead_activities`          | Structured old/new changes plus notes, actor/integration, immutable lead version                                                                            |
+| `lead_assignment_history`  | Previous/new member, actor/rule and assignment reason, unique by lead/version                                                                               |
+| `follow_ups`               | Assigned reminder, due/completed/cancelled timestamps and row version                                                                                       |
+| `duplicate_candidates`     | Ordered pairs of leads with phone/email/manual match reason and review state                                                                                |
 
 Default statuses: New, Pending, Contacted, Qualified, Interested, Not Interested, Converted, Lost. Converted is won; Not Interested and Lost are lost. Remaining categories are explicitly configured during onboarding.
 
@@ -266,20 +269,20 @@ Contact lookup uses E.164-normalized phone and normalized email HMACs with tenan
 
 ### 5.5 Integrations and durable processing
 
-| Table | Purpose / invariant |
-|---|---|
-| `provider_catalog` | Global provider capability/config contract; verification status distinguishes real adapters from placeholders |
-| `integrations` | Multiple named accounts per provider per organization, credential/mapping versions, lifecycle and safe health status |
-| `encrypted_secrets` | AES-GCM envelope, nonce, wrapped data key, key reference, purpose/version and display suffix |
-| `api_keys`, `api_key_scopes` | Prefix, HMAC hash, pepper version, membership owner, expiry/revocation, permission scopes |
-| `webhook_routes` | Random public route ID plus independent HMAC/OAuth-provider/bearer verification |
-| `api_key_directory`, `webhook_directory` | Minimal credential routing before tenant resolution; direct access is limited to authentication/ingress |
-| `integration_mapping_versions` | Immutable complete mapping versions; each receipt pins the mapping used to interpret it |
-| `connector_cursors` | Committed watermark, next allowed hit, generation and expiring fenced lease |
-| `integration_sync_runs` | Queued/running/success/failure windows and fetched/accepted counters |
-| `ingestion_receipts` | Deduped delivery, request hash, raw inline/private-object payload, mapping version, retry/lease and result |
-| `outbox_events` | Atomic business-event publication intent with aggregate/version uniqueness |
-| `consumer_checkpoints` | Consumer/event uniqueness to make at-least-once delivery safe |
+| Table                                    | Purpose / invariant                                                                                                  |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `provider_catalog`                       | Global provider capability/config contract; verification status distinguishes real adapters from placeholders        |
+| `integrations`                           | Multiple named accounts per provider per organization, credential/mapping versions, lifecycle and safe health status |
+| `encrypted_secrets`                      | AES-GCM envelope, nonce, wrapped data key, key reference, purpose/version and display suffix                         |
+| `api_keys`, `api_key_scopes`             | Prefix, HMAC hash, pepper version, membership owner, expiry/revocation, permission scopes                            |
+| `webhook_routes`                         | Random public route ID plus independent HMAC/OAuth-provider/bearer verification                                      |
+| `api_key_directory`, `webhook_directory` | Minimal credential routing before tenant resolution; direct access is limited to authentication/ingress              |
+| `integration_mapping_versions`           | Immutable complete mapping versions; each receipt pins the mapping used to interpret it                              |
+| `connector_cursors`                      | Committed watermark, next allowed hit, generation and expiring fenced lease                                          |
+| `integration_sync_runs`                  | Queued/running/success/failure windows and fetched/accepted counters                                                 |
+| `ingestion_receipts`                     | Deduped delivery, request hash, raw inline/private-object payload, mapping version, retry/lease and result           |
+| `outbox_events`                          | Atomic business-event publication intent with aggregate/version uniqueness                                           |
+| `consumer_checkpoints`                   | Consumer/event uniqueness to make at-least-once delivery safe                                                        |
 
 An API key's effective rights are its scopes intersected with its creator's current delegable permissions and current data scope. A disabled creator, inactive integration, expired key or revoked key fails authentication. Reassign machine integration ownership explicitly before disabling its owner; never leave an orphaned all-access key.
 
@@ -287,17 +290,17 @@ Routing identifiers are not secrets. Prefix/public-ID resolution only locates a 
 
 ### 5.6 Reporting, jobs and audit
 
-| Table | Purpose / invariant |
-|---|---|
-| `saved_lead_views` | Private/shared filter specification, columns, sort and view version |
-| `async_jobs` | Export/import/bulk/report lifecycle, requester, idempotent operation key, filter and authorization snapshots, lease/progress/cancellation |
-| `job_artifacts` | Private object key, safe file name/MIME, row/byte counts, checksum and expiry |
-| `job_lead_manifest` | Exact contributing lead IDs/versions for restricted artifacts and download-scope rechecks |
-| `reporting_lead_facts` | One latest projected row per lead/metric generation; version gates make out-of-order events safe |
-| `lead_daily_rollups` | Acquisition-day/source/status/assignee counts; `NULLS NOT DISTINCT` prevents duplicate unassigned groups |
-| `webhook_subscriptions`, `webhook_deliveries` | Outbound destination/signing configuration and unique subscription/event delivery attempts |
-| `audit_logs` | Tenant-bound append-only redacted business/access audit |
-| `platform_audit_logs` | Separate platform-operation audit; no default access to tenant data |
+| Table                                         | Purpose / invariant                                                                                                                       |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `saved_lead_views`                            | Private/shared filter specification, columns, sort and view version                                                                       |
+| `async_jobs`                                  | Export/import/bulk/report lifecycle, requester, idempotent operation key, filter and authorization snapshots, lease/progress/cancellation |
+| `job_artifacts`                               | Private object key, safe file name/MIME, row/byte counts, checksum and expiry                                                             |
+| `job_lead_manifest`                           | Exact contributing lead IDs/versions for restricted artifacts and download-scope rechecks                                                 |
+| `reporting_lead_facts`                        | One latest projected row per lead/metric generation; version gates make out-of-order events safe                                          |
+| `lead_daily_rollups`                          | Acquisition-day/source/status/assignee counts; `NULLS NOT DISTINCT` prevents duplicate unassigned groups                                  |
+| `webhook_subscriptions`, `webhook_deliveries` | Outbound destination/signing configuration and unique subscription/event delivery attempts                                                |
+| `audit_logs`                                  | Tenant-bound append-only redacted business/access audit                                                                                   |
+| `platform_audit_logs`                         | Separate platform-operation audit; no default access to tenant data                                                                       |
 
 The application runtime can INSERT/SELECT audit rows but cannot UPDATE/DELETE them. Retention uses a separate maintenance identity with approval. Do not place API keys, raw request bodies, passwords, session tokens or unrestricted contact history in audit changes.
 
@@ -338,16 +341,16 @@ Delegated role/user administration cannot grant permissions or scope beyond the 
 
 ### 6.2 Page/action catalog
 
-| Page/module | Suggested permission codes |
-|---|---|
-| Dashboard | `dashboard.view` |
-| Leads | `leads.view`, `leads.create`, `leads.edit`, `leads.assign`, `leads.share`, `leads.archive`, `leads.restore`, `leads.delete`, `leads.import`, `leads.export`, `leads.pii.view` |
-| Reports | `reports.view`, `reports.export` |
-| API integrations | `api_integrations.view`, `api_integrations.manage`, `api_keys.manage` |
-| Marketplaces | `marketplace.view`, `marketplace.manage`, `marketplace.replay` |
-| Users/roles | `users.view`, `users.manage`, `roles.view`, `roles.manage` |
-| Settings | `settings.view`, `settings.manage`, `assignment_rules.manage` |
-| Audit | `audit.view`, `audit.export` |
+| Page/module      | Suggested permission codes                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard        | `dashboard.view`                                                                                                                                                              |
+| Leads            | `leads.view`, `leads.create`, `leads.edit`, `leads.assign`, `leads.share`, `leads.archive`, `leads.restore`, `leads.delete`, `leads.import`, `leads.export`, `leads.pii.view` |
+| Reports          | `reports.view`, `reports.export`                                                                                                                                              |
+| API integrations | `api_integrations.view`, `api_integrations.manage`, `api_keys.manage`                                                                                                         |
+| Marketplaces     | `marketplace.view`, `marketplace.manage`, `marketplace.replay`                                                                                                                |
+| Users/roles      | `users.view`, `users.manage`, `roles.view`, `roles.manage`                                                                                                                    |
+| Settings         | `settings.view`, `settings.manage`, `assignment_rules.manage`                                                                                                                 |
+| Audit            | `audit.view`, `audit.export`                                                                                                                                                  |
 
 Catalog seeds are application data created by migrations. The SQL file defines the catalog structure, not organization-specific defaults.
 
@@ -355,17 +358,17 @@ Catalog seeds are application data created by migrations. The SQL file defines t
 
 The SQL file creates tenant RLS policies and immutable-organization triggers, but intentionally does not create cluster-level login roles or embed passwords.
 
-| Database identity | Allowed purpose |
-|---|---|
-| `crm_migrator` | Own schema/migrations; never used by an HTTP handler |
-| `crm_auth` | Credential/session operations, minimal membership lookup and organization routing |
-| `crm_api` | Tenant business CRUD with column/table grants; no credential-ciphertext or global-password reads |
-| `crm_ingress` | Credential verification/receipt creation only |
-| `crm_worker` | Tenant-scoped intake and assignment processing |
-| `crm_reporting` | Tenant-scoped reporting reads/job/projection writes; not raw credential access |
-| `crm_relay` | Outbox work for an explicit tenant; read-only discovery of routable active tenant IDs |
-| `crm_platform` | Organization lifecycle/platform audit; no ordinary tenant lead access |
-| `crm_maintenance` | Backups, purge/reconciliation, tightly controlled |
+| Database identity | Allowed purpose                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------ |
+| `crm_migrator`    | Own schema/migrations; never used by an HTTP handler                                             |
+| `crm_auth`        | Credential/session operations, minimal membership lookup and organization routing                |
+| `crm_api`         | Tenant business CRUD with column/table grants; no credential-ciphertext or global-password reads |
+| `crm_ingress`     | Credential verification/receipt creation only                                                    |
+| `crm_worker`      | Tenant-scoped intake and assignment processing                                                   |
+| `crm_reporting`   | Tenant-scoped reporting reads/job/projection writes; not raw credential access                   |
+| `crm_relay`       | Outbox work for an explicit tenant; read-only discovery of routable active tenant IDs            |
+| `crm_platform`    | Organization lifecycle/platform audit; no ordinary tenant lead access                            |
+| `crm_maintenance` | Backups, purge/reconciliation, tightly controlled                                                |
 
 All runtime identities must be `NOSUPERUSER NOBYPASSRLS`, must not own business tables, and must not be members of the migrator role.
 
@@ -466,19 +469,19 @@ Do not pass an unrestricted SQLAlchemy session into arbitrary plugins. Backend c
 
 Interactive routes use `/api/v1`; machine API keys use `/api/public/v1`; provider ingress uses `/api/hooks/v1`. Names are the new canonical design, not compatibility claims for the prototype's unversioned endpoints.
 
-| Domain | Important operations |
-|---|---|
-| Identity | `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/mfa/*`, `/auth/switch-organization` |
-| Organizations | `/organizations/me`, `/organizations/settings`, `/organizations/onboard` |
-| People/access | `/memberships`, `/invitations`, `/roles`, `/permissions`, `/teams`, membership overrides and visibility |
-| Leads | `GET /leads`, `POST /leads/search`, `POST /leads`, `GET/PATCH /leads/{id}`, archive/restore, assignments, tags, shares, activities, follow-ups |
-| Configuration | `/lead-statuses`, `/lead-fields`, `/tags`, `/assignment-rules` |
-| Intake | `/integrations`, `/integrations/{id}/mappings`, `/test`, `/sync-runs`, `/backfill`, `/receipts`, `/replay` |
-| API credentials | `/api-keys`, `/api-keys/{id}/revoke`, `/webhook-subscriptions` |
-| Reports | `/reports/query`, `/analytics/summary`, `/analytics/trends`, `/analytics/breakdown` |
-| Async work | `POST /jobs/exports`, `/jobs/imports`, `/jobs/bulk`, `GET /jobs/{id}`, cancellation, `/jobs/{id}/artifacts/{artifact_id}/download` |
-| Saved views/audit | `/lead-views`, `/audit` |
-| Public API | `POST /leads` with `Idempotency-Key`, `GET /receipts/{id}`, scoped `GET/PATCH /leads/{id}`, `POST /leads/search` |
+| Domain            | Important operations                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity          | `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`, `/auth/forgot-password`, `/auth/reset-password`, `/auth/mfa/*`, `/auth/switch-organization` |
+| Organizations     | `/organizations/me`, `/organizations/settings`, `/organizations/onboard`                                                                                |
+| People/access     | `/memberships`, `/invitations`, `/roles`, `/permissions`, `/teams`, membership overrides and visibility                                                 |
+| Leads             | `GET /leads`, `POST /leads/search`, `POST /leads`, `GET/PATCH /leads/{id}`, archive/restore, assignments, tags, shares, activities, follow-ups          |
+| Configuration     | `/lead-statuses`, `/lead-fields`, `/tags`, `/assignment-rules`                                                                                          |
+| Intake            | `/integrations`, `/integrations/{id}/mappings`, `/test`, `/sync-runs`, `/backfill`, `/receipts`, `/replay`                                              |
+| API credentials   | `/api-keys`, `/api-keys/{id}/revoke`, `/webhook-subscriptions`                                                                                          |
+| Reports           | `/reports/query`, `/analytics/summary`, `/analytics/trends`, `/analytics/breakdown`                                                                     |
+| Async work        | `POST /jobs/exports`, `/jobs/imports`, `/jobs/bulk`, `GET /jobs/{id}`, cancellation, `/jobs/{id}/artifacts/{artifact_id}/download`                      |
+| Saved views/audit | `/lead-views`, `/audit`                                                                                                                                 |
+| Public API        | `POST /leads` with `Idempotency-Key`, `GET /receipts/{id}`, scoped `GET/PATCH /leads/{id}`, `POST /leads/search`                                        |
 
 Public asynchronous lead creation returns `202 Accepted` and a receipt URL. Manual interactive creation can return `201 Created` after its synchronous transaction. A provider requiring a specific success status/body uses its documented acknowledgement contract only after durable acceptance.
 
@@ -489,12 +492,20 @@ Public asynchronous lead creation returns `202 Accepted` and a receipt URL. Manu
   "filter_version": 1,
   "filters": {
     "and": [
-      {"field": "received_at", "operator": "gte", "value": "2026-11-01T00:00:00+05:30"},
-      {"field": "status_id", "operator": "in", "value": ["status-uuid"]},
-      {"field": "custom.budget", "operator": "between", "value": [10000, 50000]}
+      {
+        "field": "received_at",
+        "operator": "gte",
+        "value": "2026-11-01T00:00:00+05:30"
+      },
+      { "field": "status_id", "operator": "in", "value": ["status-uuid"] },
+      {
+        "field": "custom.budget",
+        "operator": "between",
+        "value": [10000, 50000]
+      }
     ]
   },
-  "sort": [{"field": "received_at", "direction": "desc"}],
+  "sort": [{ "field": "received_at", "direction": "desc" }],
   "columns": ["id", "name", "phone", "source_provider", "status_id"],
   "limit": 50,
   "cursor": null
@@ -506,8 +517,12 @@ Illustrative UUID placeholders must be replaced with actual UUIDs in requests. U
 ```json
 {
   "data": [],
-  "page": {"next_cursor": null, "previous_cursor": null, "has_more": false},
-  "meta": {"request_id": "uuid", "as_of": "2026-11-04T16:30:00Z", "count_type": "not_computed"}
+  "page": { "next_cursor": null, "previous_cursor": null, "has_more": false },
+  "meta": {
+    "request_id": "uuid",
+    "as_of": "2026-11-04T16:30:00Z",
+    "count_type": "not_computed"
+  }
 }
 ```
 
@@ -585,15 +600,15 @@ Follow-up writes also use version checks, and recompute the lead's earliest open
 
 Example starting server-connection budget across **all** processes:
 
-| Workload | Maximum active connections |
-|---|---:|
-| Four API processes x 6 | 24 |
-| Two intake workers x 6 | 12 |
-| Reporting/export worker | 4 |
-| Relay/scheduler | 2 |
-| Identity pools across API processes | 4 |
-| Total application budget | 46 |
-| Reserved administration/migrations/monitoring | 10 |
+| Workload                                      | Maximum active connections |
+| --------------------------------------------- | -------------------------: |
+| Four API processes x 6                        |                         24 |
+| Two intake workers x 6                        |                         12 |
+| Reporting/export worker                       |                          4 |
+| Relay/scheduler                               |                          2 |
+| Identity pools across API processes           |                          4 |
+| Total application budget                      |                         46 |
+| Reserved administration/migrations/monitoring |                         10 |
 
 Keep the total below a planned PgBouncer backend budget of 60 and PostgreSQL `max_connections` of 120. Count per-role/per-database pools across every PgBouncer instance; the budget is global, not per host. Do not enable unbounded SQLAlchemy overflow. Tune from measured queue time and database pressure.
 
@@ -735,20 +750,20 @@ The snapshot starts when the worker begins, not necessarily when the user clicke
 
 The scope is every requested Cronberry-style supported lead source, not IndiaMART only. Public marketing mentions are not proof of a working API contract. Provider documentation, credentials and contractual access are prerequisites to enabling a card.
 
-| Source | Planned capability | Release gate |
-|---|---|---|
-| IndiaMART | Pull, incremental/backfill, account key | Revalidate current API limits/credentials and port prototype into a distributed-safe adapter |
-| TradeIndia | Pull, account/profile/key, provider-supported update/assignment settings | Validate current endpoint, pagination, limits and toggle semantics |
-| JustDial | Provider-configured lead-posting endpoint | Verify payload, source identity, authentication and acknowledgement contract |
-| Sulekha | Lead adapter | Obtain current API/webhook contract and permitted access |
-| 99acres | Lead adapter | Obtain current API/webhook contract and permitted access |
-| MagicBricks | Lead adapter | Obtain current API/webhook contract and permitted access |
-| IVR providers | Call-lead intake | Provider-specific signed webhook and call identity contract |
-| Facebook Lead Ads | Verified event intake + authorized lead retrieval | Meta app permissions/review, current lead retrieval and signature rules |
-| Google Forms | Authorized form bridge + mapping | Apps Script/approved bridge delivery and secret management |
-| Custom forms | Authenticated form intake | Server-side validation, abuse limits and consent requirements |
-| Website/API | Scoped machine-key intake and queries | Public API contract and key revocation tests |
-| Shopify | Customer/order-to-lead adapter if required | Current partner/API authorization and source-to-lead business rules |
+| Source            | Planned capability                                                       | Release gate                                                                                 |
+| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| IndiaMART         | Pull, incremental/backfill, account key                                  | Revalidate current API limits/credentials and port prototype into a distributed-safe adapter |
+| TradeIndia        | Pull, account/profile/key, provider-supported update/assignment settings | Validate current endpoint, pagination, limits and toggle semantics                           |
+| JustDial          | Provider-configured lead-posting endpoint                                | Verify payload, source identity, authentication and acknowledgement contract                 |
+| Sulekha           | Lead adapter                                                             | Obtain current API/webhook contract and permitted access                                     |
+| 99acres           | Lead adapter                                                             | Obtain current API/webhook contract and permitted access                                     |
+| MagicBricks       | Lead adapter                                                             | Obtain current API/webhook contract and permitted access                                     |
+| IVR providers     | Call-lead intake                                                         | Provider-specific signed webhook and call identity contract                                  |
+| Facebook Lead Ads | Verified event intake + authorized lead retrieval                        | Meta app permissions/review, current lead retrieval and signature rules                      |
+| Google Forms      | Authorized form bridge + mapping                                         | Apps Script/approved bridge delivery and secret management                                   |
+| Custom forms      | Authenticated form intake                                                | Server-side validation, abuse limits and consent requirements                                |
+| Website/API       | Scoped machine-key intake and queries                                    | Public API contract and key revocation tests                                                 |
+| Shopify           | Customer/order-to-lead adapter if required                               | Current partner/API authorization and source-to-lead business rules                          |
 
 Each adapter declares:
 
@@ -815,16 +830,16 @@ Backups include database PITR, object-store lifecycle/versioning, and encrypted 
 
 ## 14. Implementation sequence and acceptance gates
 
-| Phase | Deliverable | Required validation |
-|---|---|---|
-| 0 | Native setup, modular skeleton, migrations, telemetry, runtime roles | Fresh PostgreSQL migration, restricted-role grants, no secrets in configuration/logs |
-| 1 | Identity, onboarding, memberships, Owner, roles/overrides/teams | Last-Owner protection, multi-org switching, cross-tenant FK/RLS tests, grant ceiling |
-| 2 | Leads, filters, custom fields, tags, activity/follow-ups, saved views | Indexed table queries, stale-edit conflict, scope/PII enforcement on every surface |
-| 3 | Durable intake, outbox, API keys, mappings, assignment | Concurrent duplicate delivery, Redis failure recovery, lease fencing, round-robin race tests |
-| 4 | Provider adapters across the agreed catalog | Per-provider contract fixtures and authorized live account tests; no fake Connected states |
-| 5 | Analytics, reports, exports/Download Center | Projection reconciliation, filter equivalence, CSV/XLSX correctness, reassignment/role-revocation download tests |
-| 6 | Retention, purge, backups, observability and deployment | Restore drill, soak/failure/load tests, resource quotas, data-loss reconciliation |
-| 7 | External data imports | Source/target count reconciliation, validated mappings, retry dedupe continuity |
+| Phase | Deliverable                                                           | Required validation                                                                                              |
+| ----- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 0     | Native setup, modular skeleton, migrations, telemetry, runtime roles  | Fresh PostgreSQL migration, restricted-role grants, no secrets in configuration/logs                             |
+| 1     | Identity, onboarding, memberships, Owner, roles/overrides/teams       | Last-Owner protection, multi-org switching, cross-tenant FK/RLS tests, grant ceiling                             |
+| 2     | Leads, filters, custom fields, tags, activity/follow-ups, saved views | Indexed table queries, stale-edit conflict, scope/PII enforcement on every surface                               |
+| 3     | Durable intake, outbox, API keys, mappings, assignment                | Concurrent duplicate delivery, Redis failure recovery, lease fencing, round-robin race tests                     |
+| 4     | Provider adapters across the agreed catalog                           | Per-provider contract fixtures and authorized live account tests; no fake Connected states                       |
+| 5     | Analytics, reports, exports/Download Center                           | Projection reconciliation, filter equivalence, CSV/XLSX correctness, reassignment/role-revocation download tests |
+| 6     | Retention, purge, backups, observability and deployment               | Restore drill, soak/failure/load tests, resource quotas, data-loss reconciliation                                |
+| 7     | External data imports                                                 | Source/target count reconciliation, validated mappings, retry dedupe continuity                                  |
 
 ### Mandatory concurrency/failure tests
 

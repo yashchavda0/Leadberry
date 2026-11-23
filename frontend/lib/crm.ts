@@ -303,6 +303,16 @@ export type Dashboard = {
     average_days: number | null;
     median_days: number | null;
   };
+  response_activity: {
+    activities: number;
+    leads_with_activity: number;
+    connected_activities: number;
+    leads_connected: number;
+    average_first_activity_hours: number | null;
+    median_first_activity_hours: number | null;
+    average_first_connected_hours: number | null;
+    median_first_connected_hours: number | null;
+  };
   outcomes: {
     converted_leads: number;
     lost_leads: number;
@@ -349,6 +359,16 @@ const messages: Record<string, string> = {
     "Select at least one active user for automatic assignment.",
   status_assignment_pool_empty:
     "No active eligible users are available for this status assignment.",
+  intake_management_requires_full_lead_access:
+    "Managing intake keys requires organization-wide lead visibility, lead creation and contact-data access.",
+  assignment_rules_require_full_scope:
+    "Managing assignment rules requires organization-wide lead visibility.",
+  intake_key_not_found: "This API key is no longer available.",
+  invalid_team: "Choose an active team in this organization.",
+  idempotency_conflict:
+    "This submission identifier was already used with different details.",
+  intake_rate_limited:
+    "This API key has reached its request limit. Try again shortly.",
   invalid_custom_field_value:
     "One or more custom-field values do not match their configured type or options.",
   unknown_custom_field: "A custom field is not defined for this organization.",

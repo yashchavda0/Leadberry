@@ -799,6 +799,20 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
     account = add_account(client, "Worker account", "worker-fixture-key")
     identity = client.get("/api/v1/auth/me").json()
     org = UUID(identity["organization_id"])
+    team = client.post(
+        "/api/v1/teams",
+        json={
+            "name": "Marketplace routing",
+            "membership_ids": [identity["membership_id"]],
+        },
+    ).json()["id"]
+    assert (
+        client.put(
+            "/api/v1/assignment-rules/indiamart",
+            json={"team_id": team, "enabled": True},
+        ).status_code
+        == 200
+    )
     private = serialization.load_pem_private_key(
         Path(os.environ["TEST_MARKETPLACE_PRIVATE_KEY_FILE"]).read_bytes(),
         password=None,
@@ -868,6 +882,8 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
     lead = leads[0]
     assert lead["integration_id"] == account["id"]
     assert lead["source_account_name"] == "Worker account"
+    assert lead["assigned_membership_id"] == identity["membership_id"]
+    assert lead["team_id"] == team
     assert (
         client.put(
             f"/api/v1/leads/{lead['id']}",
@@ -883,6 +899,7 @@ def test_database_worker_ingests_idempotently_and_preserves_manual_edits(
     leads = client.get("/api/v1/leads").json()["data"]
     assert len(leads) == 1
     assert leads[0]["name"] == "Manual name"
+    assert leads[0]["assigned_membership_id"] is None
     latest = client.get(f"/api/v1/marketplace/accounts/{account['id']}/runs").json()[
         "data"
     ][0]
@@ -1570,7 +1587,13 @@ def test_database_lead_export_is_excel_scoped_and_formula_safe(marketplace_owner
     report_export = client.get("/api/v1/reports/leads/export")
     assert report_export.status_code == 200, report_export.text
     report = load_workbook(BytesIO(report_export.content))
-    assert report.sheetnames == ["Follow-ups", "Leads by user", "By source"]
+    assert report.sheetnames == [
+        "Follow-ups",
+        "Activities by user",
+        "Leads by user",
+        "By source",
+        "Source conversion",
+    ]
 
 
 def test_concurrent_lead_dashboard_report_and_export_requests(marketplace_owner):

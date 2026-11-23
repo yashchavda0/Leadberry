@@ -18,8 +18,10 @@ type Report = {
   start: string; end: string; timezone: string;
   statuses: { id: string; name: string; color: string; type: string; is_active: boolean }[];
   follow_up: { member_id: string | null; name: string; missed: number; completed: number; upcoming: number }[];
+  activity_by_user: { member_id: string | null; name: string; activities: number; leads_touched: number; connected_activities: number; leads_connected: number; first_activity_leads: number; average_first_activity_hours: number | null; median_first_activity_hours: number | null }[];
   by_user: (Counted & { member_id: string | null; name: string; is_me: boolean })[];
   by_source: (Counted & { name: string })[];
+  source_conversion: { name: string; total: number; converted: number; conversion_rate: number }[];
 };
 
 export default function ReportsPage() { return <Guard permission="reports.view"><Reports /></Guard>; }
@@ -73,6 +75,23 @@ function Reports() {
     key: row.member_id || "none", label: row.name,
     cells: [{ content: num(row.missed), tone: row.missed ? "danger" : "muted" }, { content: num(row.completed), tone: row.completed ? "success" : "muted" }, { content: num(row.upcoming), tone: dim(row.upcoming) }],
   }));
+  const activityRows: ReportRow[] = (data?.activity_by_user || []).map(row => ({
+    key: row.member_id || "none", label: row.name,
+    cells: [
+      { content: num(row.activities), tone: dim(row.activities) },
+      { content: num(row.leads_touched), tone: dim(row.leads_touched) },
+      { content: num(row.leads_connected), tone: row.leads_connected ? "success" : "muted" },
+      { content: row.median_first_activity_hours === null ? "-" : `${row.median_first_activity_hours} h` },
+    ],
+  }));
+  const sourceConversionRows: ReportRow[] = (data?.source_conversion || []).map(row => ({
+    key: row.name, label: row.name, labelHref: link({ source: row.name }),
+    cells: [
+      { content: num(row.total), href: link({ source: row.name }) },
+      { content: num(row.converted), tone: row.converted ? "success" : "muted", href: row.converted ? link({ source: row.name, status_id: statuses.find(status => status.type === "won")?.id || "" }) : undefined },
+      { content: `${row.conversion_rate.toFixed(1)}%` },
+    ],
+  }));
   const userRows: ReportRow[] = (data?.by_user || []).map(row => {
     const filter = row.member_id ? { assignee: row.member_id } : null;
     return { key: row.member_id || "none", label: row.is_me ? `${row.name} (you)` : row.name, labelHref: filter ? link(filter) : undefined, cells: statusCells(row, filter) };
@@ -93,12 +112,18 @@ function Reports() {
     </div>
     <div className="report-toolbar"><DateRangeFilter value={range} onChange={setRange} />{data && <span className="small muted">Times in {data.timezone}</span>}</div>
     <ErrorNotice error={report.error} />
-    <ReportTable title="Follow-ups" icon="calendar" description="Open leads with a follow-up date in the range, and follow-up actions logged." loading={loading}
+    <ReportTable title="Follow-ups" icon="calendar" description="Scheduled dates and recorded task completions in the selected range. Completions are tracked from the follow-up workspace launch." loading={loading}
       headers={["Missed", "Completed", "Upcoming"]} rows={followRows} empty="No follow-ups are scheduled in this date range."
       totals={[sum((data?.follow_up || []).map(row => row.missed)), sum((data?.follow_up || []).map(row => row.completed)), sum((data?.follow_up || []).map(row => row.upcoming))]} />
+    <ReportTable title="Response activity" icon="history" description="Manually logged contact activities by actor. Connected means the actor marked the activity outcome as connected." loading={loading}
+      headers={["Activities", "Leads touched", "Leads connected", "Median first activity"]} rows={activityRows} empty="No response activities have been logged for this period."
+      totals={[sum((data?.activity_by_user || []).map(row => row.activities)), sum((data?.activity_by_user || []).map(row => row.leads_touched)), sum((data?.activity_by_user || []).map(row => row.leads_connected)), "-" ]} />
     <ReportTable title="Lead report" subtitle="(all channels)" icon="leads" description="Leads received in the range by user and status. Click a name or number to open those leads." loading={loading} action={picker}
       headers={headers} rows={userRows} empty="No leads were received in this date range." totals={totalsOf(data?.by_user || [])} />
     <ReportTable title="Lead report as per source" nameHeader="Source" icon="store" description="The same breakdown by where the leads came from." loading={loading} action={picker}
       headers={headers} rows={sourceRows} empty="No leads were received in this date range." totals={totalsOf(data?.by_source || [])} />
+    <ReportTable title="Source conversion" nameHeader="Source" icon="chart" description="Current won leads divided by leads received in the selected cohort. This is lead conversion, not recognized revenue." loading={loading}
+      headers={["Leads received", "Currently won", "Conversion rate"]} rows={sourceConversionRows} empty="No leads were received in this date range."
+      totals={[sum((data?.source_conversion || []).map(row => row.total)), sum((data?.source_conversion || []).map(row => row.converted)), data?.source_conversion?.length ? `${(100 * data.source_conversion.reduce((total, row) => total + row.converted, 0) / data.source_conversion.reduce((total, row) => total + row.total, 0)).toFixed(1)}%` : "0.0%"]} />
   </>;
 }

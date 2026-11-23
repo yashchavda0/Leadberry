@@ -6,7 +6,7 @@ from ...core.database import tenant_transaction
 
 from .access import accept_invite
 from .dependencies import User, identity, public_throttle, set_session
-from .schemas import AcceptInvite, Login, ProfileInput
+from .schemas import AcceptInvite, Login, PasswordChangeInput, ProfileInput
 from .security import CSRF_COOKIE, SESSION_COOKIE
 from .service import AccessError
 
@@ -50,6 +50,15 @@ async def logout(request: Request, response: Response, user: User):
     response.delete_cookie(CSRF_COOKIE, path="/")
 
 
+@router.post("/password", status_code=204)
+async def change_password(body: PasswordChangeInput, request: Request, user: User):
+    await identity(request).change_password(
+        user,
+        body.current_password.get_secret_value(),
+        body.new_password.get_secret_value(),
+    )
+
+
 @router.get("/me")
 async def me(request: Request, user: User):
     async with tenant_transaction(
@@ -76,6 +85,8 @@ async def me(request: Request, user: User):
         "data_scope": user.data_scope,
         "landing_page": member["landing_page"],
         "display_name": member["display_name"],
+        "access_mode": user.access_mode,
+        "password_change_required": user.password_change_required,
     }
 
 

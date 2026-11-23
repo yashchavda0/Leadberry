@@ -61,6 +61,678 @@ def create_role(client, name, parent=None, permissions=None):
     return response.json()["id"]
 
 
+def test_website_intake_key_idempotency_and_revocation(owner, monkeypatch):
+    monkeypatch.setattr(
+        "app.modules.leads.intake.secrets.token_urlsafe", lambda _: "_" + "a" * 42
+    )
+    response = owner.post("/api/v1/intake/keys", json={"name": "Website"})
+    assert response.status_code == 201, response.text
+    key = response.json()
+    headers = {
+        "Authorization": f"Bearer {key['token']}",
+        "Idempotency-Key": "submission-001",
+    }
+    payload = {
+        "name": "Website enquiry",
+        "email": "buyer@example.com",
+        "enquiry": "Please contact me",
+    }
+    first = owner.post("/api/v1/intake/leads", headers=headers, json=payload)
+    assert first.status_code == 201, first.text
+    retry = owner.post("/api/v1/intake/leads", headers=headers, json=payload)
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["id"] == first.json()["id"]
+    assert (
+        owner.post(
+            "/api/v1/intake/leads",
+            headers=headers,
+            json={**payload, "name": "Different"},
+        ).status_code
+        == 409
+    )
+    lead = owner.get(f"/api/v1/leads/{first.json()['id']}").json()
+    assert lead["source_provider"] == "website"
+    assert lead["assigned_membership_id"] is None
+    assert owner.delete(f"/api/v1/intake/keys/{key['id']}").status_code == 204
+    assert (
+        owner.post("/api/v1/intake/leads", headers=headers, json=payload).status_code
+        == 401
+    )
+
+
+def test_website_intake_security_and_concurrent_retries(owner):
+    from concurrent.futures import ThreadPoolExecutor
+
+    key = owner.post("/api/v1/intake/keys", json={"name": "Private site"}).json()
+    headers = {
+        "Authorization": f"Bearer {key['token']}",
+        "Idempotency-Key": "same-event",
+    }
+    payload = {"name": "Concurrent enquiry"}
+    assert key["token"] not in owner.get("/api/v1/intake/keys").text
+    assert (
+        owner.post(
+            "/api/v1/intake/leads",
+            headers={**headers, "Origin": "https://example.com"},
+            json=payload,
+        ).status_code
+        == 403
+    )
+    assert (
+        owner.post(
+            "/api/v1/intake/leads",
+            headers={**headers, "Authorization": "Bearer invalid"},
+            json=payload,
+        ).status_code
+        == 401
+    )
+    assert (
+        owner.post(
+            "/api/v1/intake/leads",
+            headers={**headers, "Idempotency-Key": "invalid key"},
+            json=payload,
+        ).status_code
+        == 422
+    )
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(
+            executor.map(
+                lambda _: owner.post(
+                    "/api/v1/intake/leads", headers=headers, json=payload
+                ),
+                range(4),
+            )
+        )
+    assert sorted(result.status_code for result in results) == [200, 200, 200, 201]
+    assert len({result.json()["id"] for result in results}) == 1
+    options = (
+        {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as other:
+        response = other.post(
+            "/api/v1/organizations/onboard",
+            json={
+                "organization_slug": f"other-intake-{uuid4()}",
+                "organization_name": "Other",
+                "full_name": "Owner",
+                "email": f"{uuid4()}@example.com",
+                "password": f"test-password-{uuid4()}",
+            },
+        )
+        assert response.status_code == 201
+        other.headers["X-CSRF-Token"] = other.cookies["crm_csrf"]
+        assert other.get("/api/v1/intake/keys").json()["data"] == []
+        assert other.delete(f"/api/v1/intake/keys/{key['id']}").status_code == 404
+        forged = key["token"].split("_", 3)
+        forged[1] = (
+            other.get("/api/v1/auth/me").json()["organization_id"].replace("-", "")
+        )
+        assert (
+            other.post(
+                "/api/v1/intake/leads",
+                headers={**headers, "Authorization": "Bearer " + "_".join(forged)},
+                json=payload,
+            ).status_code
+            == 401
+        )
+
+
+def test_website_intake_enforces_key_rate_limit(owner):
+    from sqlalchemy import text
+    from app.core.database import tenant_transaction
+
+    key = owner.post("/api/v1/intake/keys", json={"name": "Limited"}).json()
+    org_id = UUID(owner.get("/api/v1/auth/me").json()["organization_id"])
+
+    async def fill_window():
+        async with tenant_transaction(
+            owner.app.state.database_engine, org_id
+        ) as connection:
+            await connection.execute(
+                text(
+                    "UPDATE crm.intake_keys SET window_count=60,window_started_at=now() WHERE org_id=:org AND id=:id"
+                ),
+                {"org": org_id, "id": UUID(key["id"])},
+            )
+
+    owner.portal.call(fill_window)
+    response = owner.post(
+        "/api/v1/intake/leads",
+        headers={
+            "Authorization": f"Bearer {key['token']}",
+            "Idempotency-Key": "rate-test",
+        },
+        json={"name": "Limited lead"},
+    )
+    assert response.status_code == 429
+    assert response.json()["code"] == "intake_rate_limited"
+    assert owner.get("/api/v1/leads", params={"q": "Limited lead"}).json()["data"] == []
+
+
+def test_website_intake_requires_active_key_issuer_permissions(owner):
+    permissions = ["api_keys.manage", "leads.create", "leads.pii.view"]
+    response = owner.post(
+        "/api/v1/roles",
+        json={
+            "name": "Integration manager",
+            "data_scope": "all",
+            "permissions": permissions,
+        },
+    )
+    assert response.status_code == 201, response.text
+    role = response.json()["id"]
+    invitation = owner.post(
+        "/api/v1/invitations",
+        json={
+            "email": f"{uuid4()}@example.com",
+            "display_name": "Integration manager",
+            "role_ids": [role],
+        },
+    ).json()
+    options = (
+        {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as manager:
+        response = manager.post(
+            "/api/v1/auth/accept-invite",
+            json={
+                "invitation_token": invitation["invitation_token"],
+                "password": f"test-password-{uuid4()}",
+            },
+        )
+        assert response.status_code == 200
+        manager.headers["X-CSRF-Token"] = manager.cookies["crm_csrf"]
+        response = manager.post("/api/v1/intake/keys", json={"name": "Service"})
+        assert response.status_code == 201, response.text
+        headers = {
+            "Authorization": f"Bearer {response.json()['token']}",
+            "Idempotency-Key": "first",
+        }
+        assert (
+            owner.post(
+                "/api/v1/intake/leads",
+                headers=headers,
+                json={"name": "Before revocation"},
+            ).status_code
+            == 201
+        )
+        response = owner.put(
+            f"/api/v1/memberships/{invitation['membership_id']}",
+            json={
+                "status": "active",
+                "role_ids": [role],
+                "permission_overrides": {"api_keys.manage": False},
+                "landing_page": "/account",
+            },
+        )
+        assert response.status_code == 200, response.text
+        headers["Idempotency-Key"] = "second"
+        assert (
+            owner.post(
+                "/api/v1/intake/leads",
+                headers=headers,
+                json={"name": "After revocation"},
+            ).status_code
+            == 401
+        )
+
+
+def test_website_intake_round_robin_and_unassigned_fallback(owner):
+    from concurrent.futures import ThreadPoolExecutor
+
+    role = create_role(owner, "Routing agent", permissions=["leads.view"])
+    invitation = owner.post(
+        "/api/v1/invitations",
+        json={
+            "email": f"{uuid4()}@example.com",
+            "display_name": "Agent",
+            "role_ids": [role],
+        },
+    ).json()
+    options = (
+        {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as agent:
+        assert (
+            agent.post(
+                "/api/v1/auth/accept-invite",
+                json={
+                    "invitation_token": invitation["invitation_token"],
+                    "password": f"test-password-{uuid4()}",
+                },
+            ).status_code
+            == 200
+        )
+    member = owner.get("/api/v1/auth/me").json()["membership_id"]
+    team = owner.post(
+        "/api/v1/teams",
+        json={
+            "name": "Website sales",
+            "membership_ids": [member, invitation["membership_id"]],
+        },
+    ).json()["id"]
+    response = owner.put(
+        "/api/v1/assignment-rules/website", json={"team_id": team, "enabled": True}
+    )
+    assert response.status_code == 200, response.text
+    preview = owner.get("/api/v1/assignment-rules/website/preview").json()
+    assert preview["reason"] == "assigned"
+    token = owner.post("/api/v1/intake/keys", json={"name": "Website"}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    assigned = []
+    for index in range(2):
+        response = owner.post(
+            "/api/v1/intake/leads",
+            headers={**headers, "Idempotency-Key": f"round-{index}"},
+            json={"name": f"Website {index}"},
+        )
+        assert response.status_code == 201, response.text
+        lead = owner.get(f"/api/v1/leads/{response.json()['id']}").json()
+        assigned.append(lead["assigned_membership_id"])
+        assert lead["team_id"] == team
+    assert set(assigned) == {member, invitation["membership_id"]}
+
+    def submit(index):
+        response = owner.post(
+            "/api/v1/intake/leads",
+            headers={**headers, "Idempotency-Key": f"concurrent-{index}"},
+            json={"name": f"Concurrent {index}"},
+        )
+        assert response.status_code == 201, response.text
+        return owner.get(f"/api/v1/leads/{response.json()['id']}").json()[
+            "assigned_membership_id"
+        ]
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        concurrent = list(executor.map(submit, range(4)))
+    assert (
+        concurrent.count(member) == concurrent.count(invitation["membership_id"]) == 2
+    )
+    assert (
+        owner.put(
+            f"/api/v1/teams/{team}",
+            json={"name": "Website sales", "membership_ids": [], "is_active": True},
+        ).status_code
+        == 200
+    )
+    assert (
+        owner.get("/api/v1/assignment-rules/website/preview").json()["reason"]
+        == "no_eligible_member"
+    )
+    assert (
+        owner.put(
+            f"/api/v1/teams/{team}",
+            json={"name": "Website sales", "membership_ids": [], "is_active": False},
+        ).status_code
+        == 200
+    )
+    assert (
+        owner.get("/api/v1/assignment-rules/website/preview").json()["reason"]
+        == "team_inactive"
+    )
+    response = owner.post(
+        "/api/v1/intake/leads",
+        headers={**headers, "Idempotency-Key": "no-team"},
+        json={"name": "Unassigned"},
+    )
+    assert response.status_code == 201, response.text
+    lead = owner.get(f"/api/v1/leads/{response.json()['id']}").json()
+    assert lead["assigned_membership_id"] is None
+    assert lead["team_id"] is None
+
+
+def test_follow_up_queue_completion_preserves_lead_status(owner):
+    due = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    response = owner.post(
+        "/api/v1/leads", json={"name": "Follow-up lead", "next_follow_up_at": due}
+    )
+    assert response.status_code == 201, response.text
+    lead = response.json()
+
+    response = owner.get("/api/v1/follow-ups")
+    assert response.status_code == 200, response.text
+    tasks = response.json()["data"]
+    task = next(item for item in tasks if item["lead_id"] == lead["id"])
+    assert task["state"] == "open"
+
+    rescheduled = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    response = owner.post(
+        f"/api/v1/follow-ups/{task['id']}/reschedule",
+        json={"row_version": task["row_version"], "due_at": rescheduled},
+    )
+    assert response.status_code == 200, response.text
+    updated = owner.get(f"/api/v1/leads/{lead['id']}").json()
+    assert datetime.fromisoformat(
+        updated["next_follow_up_at"]
+    ) == datetime.fromisoformat(rescheduled)
+    stale = owner.post(
+        f"/api/v1/follow-ups/{task['id']}/complete",
+        json={"row_version": task["row_version"]},
+    )
+    assert stale.status_code == 409
+    task = owner.get("/api/v1/follow-ups").json()["data"][0]
+
+    response = owner.post(
+        f"/api/v1/follow-ups/{task['id']}/complete",
+        json={"row_version": task["row_version"], "note": "Spoke with customer"},
+    )
+    assert response.status_code == 200, response.text
+    updated = owner.get(f"/api/v1/leads/{lead['id']}").json()
+    assert updated["status_id"] == lead["status_id"]
+    assert updated["next_follow_up_at"] is None
+    assert all(
+        item["id"] != task["id"]
+        for item in owner.get("/api/v1/follow-ups").json()["data"]
+    )
+    history = owner.get(f"/api/v1/leads/{lead['id']}/follow-ups").json()["data"]
+    assert history[0]["state"] == "completed"
+    assert history[0]["note"] == "Spoke with customer"
+    target = next(
+        item
+        for item in owner.get("/api/v1/lead-statuses").json()["data"]
+        if item["id"] != lead["status_id"] and item["type"] != "pending"
+    )
+    response = owner.post(
+        f"/api/v1/leads/{lead['id']}/status",
+        json={
+            "status_id": target["id"],
+            "note": "Status update",
+            "row_version": updated["row_version"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    report = owner.get("/api/v1/reports/leads").json()
+    assert sum(row["completed"] for row in report["follow_up"]) == 1
+
+
+def test_follow_up_pending_edit_archive_and_tenant_scope(owner):
+    pending = next(
+        item
+        for item in owner.get("/api/v1/lead-statuses").json()["data"]
+        if item["type"] == "pending"
+    )
+    due = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    lead = owner.post(
+        "/api/v1/leads",
+        json={
+            "name": "Pending follow-up",
+            "status_id": pending["id"],
+            "next_follow_up_at": due,
+        },
+    ).json()
+    task = owner.get("/api/v1/follow-ups?period=overdue").json()["data"][0]
+    options = (
+        {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as other:
+        response = other.post(
+            "/api/v1/organizations/onboard",
+            json={
+                "organization_slug": f"other-follow-up-{uuid4()}",
+                "organization_name": "Other",
+                "full_name": "Other Owner",
+                "email": f"{uuid4()}@example.com",
+                "password": f"test-password-{uuid4()}",
+            },
+        )
+        assert response.status_code == 201, response.text
+        other.headers["X-CSRF-Token"] = other.cookies["crm_csrf"]
+        assert other.get("/api/v1/follow-ups").json()["data"] == []
+        assert (
+            other.post(
+                f"/api/v1/follow-ups/{task['id']}/complete",
+                json={"row_version": task["row_version"]},
+            ).status_code
+            == 404
+        )
+        assert other.get(f"/api/v1/leads/{lead['id']}/follow-ups").status_code == 404
+    assert (
+        owner.post(
+            f"/api/v1/follow-ups/{task['id']}/complete",
+            json={"row_version": task["row_version"]},
+        ).status_code
+        == 200
+    )
+    updated = owner.get(f"/api/v1/leads/{lead['id']}").json()
+    response = owner.put(
+        f"/api/v1/leads/{lead['id']}",
+        json={
+            "name": "Pending follow-up edited",
+            "status_id": pending["id"],
+            "assigned_membership_id": updated["assigned_membership_id"],
+            "row_version": updated["row_version"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    version = response.json()["row_version"]
+    response = owner.put(
+        f"/api/v1/leads/{lead['id']}",
+        json={
+            "name": "Pending follow-up edited",
+            "status_id": pending["id"],
+            "next_follow_up_at": due,
+            "assigned_membership_id": updated["assigned_membership_id"],
+            "row_version": version,
+        },
+    )
+    assert response.status_code == 200, response.text
+    archived = owner.post(
+        f"/api/v1/leads/{lead['id']}/archive",
+        json={"row_version": response.json()["row_version"]},
+    )
+    assert archived.status_code == 200
+    assert owner.get("/api/v1/follow-ups").json()["data"] == []
+    restored = owner.post(
+        f"/api/v1/leads/{lead['id']}/restore",
+        json={"row_version": archived.json()["row_version"]},
+    )
+    assert restored.status_code == 200
+    assert len(owner.get("/api/v1/follow-ups").json()["data"]) == 1
+    history = owner.get(f"/api/v1/leads/{lead['id']}/follow-ups").json()["data"]
+    assert sorted(item["state"] for item in history) == [
+        "cancelled",
+        "completed",
+        "open",
+    ]
+
+
+def test_follow_up_date_requirement_is_configurable_per_status(owner):
+    statuses = owner.get("/api/v1/lead-statuses").json()["data"]
+    targets = [
+        next(status for status in statuses if status["type"] == category)
+        for category in ("pending", "working")
+    ]
+
+    def save_rules(status, required_fields):
+        response = owner.put(
+            f"/api/v1/lead-statuses/{status['id']}/rules",
+            json={
+                "tag_on_entry": status["tag_on_entry"],
+                "auto_assign": status["auto_assign"],
+                "member_ids": status["member_ids"],
+                "role_ids": status["role_ids"],
+                "required_fields": required_fields,
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    def create_without_date(status):
+        return owner.post(
+            "/api/v1/leads",
+            json={"name": f"Optional date {status['type']}", "status_id": status["id"]},
+        )
+
+    for status in targets:
+        save_rules(
+            status,
+            [key for key in status["required_fields"] if key != "next_follow_up_at"],
+        )
+        created = create_without_date(status)
+        assert created.status_code == 201, created.text
+
+    source = next(status for status in statuses if status["is_default"])
+    source_lead = owner.post(
+        "/api/v1/leads", json={"name": "Move into date-required status"}
+    )
+    assert source_lead.status_code == 201, source_lead.text
+    optional_transition = owner.post(
+        f"/api/v1/leads/{source_lead.json()['id']}/status",
+        json={
+            "status_id": targets[0]["id"],
+            "note": "Date is optional for this status",
+            "row_version": source_lead.json()["row_version"],
+        },
+    )
+    assert optional_transition.status_code == 200, optional_transition.text
+
+    for status in targets:
+        save_rules(status, [*status["required_fields"], "next_follow_up_at"])
+        missing = create_without_date(status)
+        assert missing.status_code == 422, missing.text
+        assert missing.json()["code"] == "lead_required_fields_missing"
+
+    required_transition_source = owner.post(
+        "/api/v1/leads", json={"name": "Move into required-date status"}
+    )
+    assert (
+        required_transition_source.status_code == 201
+    ), required_transition_source.text
+    transition = owner.post(
+        f"/api/v1/leads/{required_transition_source.json()['id']}/status",
+        json={
+            "status_id": targets[0]["id"],
+            "note": "Date should be required by the selected status rule",
+            "row_version": required_transition_source.json()["row_version"],
+        },
+    )
+    assert transition.status_code == 422, transition.text
+    assert transition.json()["code"] == "lead_required_fields_missing"
+
+
+def test_new_status_can_set_follow_up_date_requirement(owner):
+    for category, required in (("pending", True), ("working", False)):
+        created = owner.post(
+            "/api/v1/lead-statuses",
+            json={
+                "name": f"{category.title()} {uuid4()}",
+                "category": category,
+                "color": "#147d64",
+                "position": 40,
+                "is_active": True,
+                "next_follow_up_required": required,
+            },
+        )
+        assert created.status_code == 201, created.text
+        statuses = owner.get("/api/v1/lead-statuses").json()["data"]
+        status = next(item for item in statuses if item["id"] == created.json()["id"])
+        assert ("next_follow_up_at" in status["required_fields"]) is required
+
+
+def test_follow_up_queue_respects_lead_scope_and_note_redaction(owner):
+    role = create_role(
+        owner, "Follow-up agent", permissions=["leads.view", "leads.edit"]
+    )
+    email = f"{uuid4()}@example.com"
+    password = f"test-password-{uuid4()}"
+    invitation = owner.post(
+        "/api/v1/invitations",
+        json={
+            "email": email,
+            "display_name": "Agent",
+            "role_ids": [role],
+        },
+    ).json()
+    member = invitation["membership_id"]
+    options = (
+        {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as agent:
+        response = agent.post(
+            "/api/v1/auth/accept-invite",
+            json={
+                "invitation_token": invitation["invitation_token"],
+                "password": password,
+            },
+        )
+        assert response.status_code == 200, response.text
+    due = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    visible = owner.post(
+        "/api/v1/leads",
+        json={
+            "name": "Agent lead",
+            "assigned_membership_id": member,
+            "next_follow_up_at": due,
+        },
+    ).json()
+    private = owner.post(
+        "/api/v1/leads", json={"name": "Owner lead", "next_follow_up_at": due}
+    ).json()
+    tasks = owner.get("/api/v1/follow-ups?period=upcoming&limit=1").json()
+    assert len(tasks["data"]) == 1 and tasks["next_cursor"]
+    assert (
+        len(
+            owner.get(
+                "/api/v1/follow-ups",
+                params={"period": "upcoming", "after": tasks["next_cursor"]},
+            ).json()["data"]
+        )
+        == 1
+    )
+    assert owner.get("/api/v1/follow-ups?period=today").status_code == 200
+    private_task = next(
+        item
+        for item in owner.get("/api/v1/follow-ups").json()["data"]
+        if item["lead_id"] == private["id"]
+    )
+    visible_task = next(
+        item
+        for item in owner.get("/api/v1/follow-ups").json()["data"]
+        if item["lead_id"] == visible["id"]
+    )
+    assert (
+        owner.post(
+            f"/api/v1/follow-ups/{visible_task['id']}/complete",
+            json={"row_version": visible_task["row_version"], "note": "Private note"},
+        ).status_code
+        == 200
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as agent:
+        response = agent.post(
+            "/api/v1/auth/login",
+            json={
+                "organization_slug": owner.get("/api/v1/organizations/me").json()[
+                    "slug"
+                ],
+                "email": email,
+                "password": password,
+            },
+        )
+        assert response.status_code == 200, response.text
+        agent.headers["X-CSRF-Token"] = agent.cookies["crm_csrf"]
+        assert agent.get("/api/v1/follow-ups").json()["data"] == []
+        assert (
+            agent.post(
+                f"/api/v1/follow-ups/{private_task['id']}/cancel",
+                json={"row_version": private_task["row_version"]},
+            ).status_code
+            == 404
+        )
+        history = agent.get(f"/api/v1/leads/{visible['id']}/follow-ups").json()["data"]
+        assert history[0]["note"] is None
+
+
 def test_hierarchy_levels_reparenting_cycles_and_tenant_boundary(owner):
     director = create_role(owner, "Director", permissions=["dashboard.view"])
     manager = create_role(owner, "Manager", director)
@@ -735,6 +1407,128 @@ def test_repeat_customer_respects_scope_and_contact_permission(owner):
         )
 
 
+def test_lead_activities_report_response_time_without_counting_status_updates(owner):
+    statuses = owner.get("/api/v1/lead-statuses").json()["data"]
+    won = next(status["id"] for status in statuses if status["type"] == "won")
+    first = owner.post(
+        "/api/v1/leads", json={"name": "Activity lead", "source_provider": "website"}
+    ).json()
+    converted = owner.post(
+        "/api/v1/leads",
+        json={
+            "name": "Converted source lead",
+            "source_provider": "website",
+            "status_id": won,
+        },
+    ).json()
+
+    response = owner.post(
+        f"/api/v1/leads/{first['id']}/activities",
+        json={
+            "activity_type": "call",
+            "outcome": "no_answer",
+            "note": "Tried the number",
+        },
+    )
+    assert response.status_code == 201, response.text
+    response = owner.post(
+        f"/api/v1/leads/{first['id']}/activities",
+        json={
+            "activity_type": "email",
+            "outcome": "connected",
+            "note": "Customer replied",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+    activities = owner.get(f"/api/v1/leads/{first['id']}/activities").json()["data"]
+    assert [item["activity_type"] for item in activities] == ["email", "call"]
+    assert activities[0]["actor_name"] == "Owner"
+    assert (
+        len(owner.get(f"/api/v1/leads/{first['id']}/status-history").json()["data"])
+        == 0
+    )
+
+    report = owner.get("/api/v1/reports/leads").json()
+    row = next(
+        item
+        for item in report["activity_by_user"]
+        if item["member_id"] == owner.get("/api/v1/auth/me").json()["membership_id"]
+    )
+    assert row["activities"] == 2
+    assert row["leads_touched"] == 1
+    assert row["connected_activities"] == 1
+    assert row["leads_connected"] == 1
+    assert row["median_first_activity_hours"] is not None
+    source = next(
+        item for item in report["source_conversion"] if item["name"] == "website"
+    )
+    assert source["total"] == 2
+    assert source["converted"] == 1
+    assert source["conversion_rate"] == 50.0
+
+    dashboard = owner.get("/api/v1/dashboard").json()
+    assert dashboard["response_activity"]["activities"] == 2
+    assert dashboard["response_activity"]["leads_with_activity"] == 1
+    assert dashboard["response_activity"]["connected_activities"] == 1
+    assert dashboard["update_speed"]["updated"] == 0
+    assert converted["id"] != first["id"]
+
+
+def test_lead_activity_notes_follow_contact_permission(owner):
+    role = create_role(owner, "Activity reader", permissions=["leads.view"])
+    invitation = owner.post(
+        "/api/v1/invitations",
+        json={
+            "email": f"{uuid4()}@example.com",
+            "display_name": "Reader",
+            "role_ids": [role],
+        },
+    ).json()
+    options = (
+        {"loop_factory": asyncio.SelectorEventLoop} if sys.platform == "win32" else {}
+    )
+    with TestClient(
+        create_app(owner.app.state.configuration), backend_options=options
+    ) as reader:
+        response = reader.post(
+            "/api/v1/auth/accept-invite",
+            json={
+                "invitation_token": invitation["invitation_token"],
+                "password": f"test-password-{uuid4()}",
+            },
+        )
+        assert response.status_code == 200, response.text
+        reader.headers["X-CSRF-Token"] = reader.cookies["crm_csrf"]
+        lead = owner.post(
+            "/api/v1/leads",
+            json={
+                "name": "Scoped activity",
+                "assigned_membership_id": invitation["membership_id"],
+            },
+        ).json()
+        activity = owner.post(
+            f"/api/v1/leads/{lead['id']}/activities",
+            json={
+                "activity_type": "call",
+                "outcome": "connected",
+                "note": "Sensitive customer note",
+            },
+        )
+        assert activity.status_code == 201, activity.text
+        history = reader.get(f"/api/v1/leads/{lead['id']}/activities")
+        assert history.status_code == 200
+        assert history.json()["data"][0]["note"] is None
+        assert history.json()["data"][0]["actor_name"] == "Owner"
+        assert (
+            reader.post(
+                f"/api/v1/leads/{lead['id']}/activities",
+                json={"activity_type": "call", "outcome": "no_answer"},
+            ).status_code
+            == 403
+        )
+
+
 def test_dashboard_analytics_outcomes_dates_repeats_and_visibility(owner):
     statuses = {
         row["type"]: row["id"]
@@ -860,6 +1654,8 @@ def test_dashboard_analytics_outcomes_dates_repeats_and_visibility(owner):
     assert data["aging"]["days_0_3"] == 2
     assert data["quality"]["no_contact"] == 2
     assert data["update_speed"]["updated"] == 1
+    assert data["response_activity"]["activities"] == 0
+    assert data["response_activity"]["leads_with_activity"] == 0
     assert data["outcomes"]["converted_leads"] == 1
     assert data["outcomes"]["conversion_events"] == 1
     assert data["stage_activity"] == [

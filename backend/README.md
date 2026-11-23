@@ -102,7 +102,7 @@ credential-rate coordination and database uniqueness rather than Redis as its qu
 | `migrations/versions/0006_database_grants.py` | Least-privilege table grants for `crm_api`, `crm_auth` and `crm_worker`                                      |
 | `app/modules/marketplace/`                    | Provider catalog, encrypted account setup, lifecycle APIs and IndiaMART worker                               |
 
-Readiness expects `0006_database_grants` and checks both configured roles. Migrations do not
+Readiness expects the current Alembic head and checks the configured runtime role. Migrations do not
 run during API startup. Use the migration helper rather than applying the full
 [reference design SQL](../docs/database-schema.sql) on an Alembic-managed database.
 
@@ -121,7 +121,12 @@ existing business services rather than duplicating authentication or access logi
 | Organizations           | `app/modules/identity/organizations.py`  | Onboarding and GET/PUT organization profile                                                  |
 | Roles and permissions   | `app/modules/identity/role_routes.py`    | Permission catalog and GET/POST/PUT role administration                                      |
 | Members and invitations | `app/modules/identity/memberships.py`    | Membership access updates and invitation issuance                                            |
+| Platform administration | `app/modules/identity/platform.py`       | Separate operator login, subscriptions, access controls, password resets and audit           |
 | Leads                   | `app/modules/leads/routes.py`            | Lead lists/options, creation, detail/update and archive/restore                              |
+| Follow-ups              | `app/modules/leads/follow_ups.py`        | Scoped queue, task history, completion, rescheduling and cancellation                        |
+| Lead activities         | `app/modules/leads/activities.py`        | Permission-scoped response activity timeline and logging                                    |
+| Website intake          | `app/modules/leads/intake.py`            | Revocable server credentials and idempotent lead submissions                                 |
+| Assignment rules        | `app/modules/leads/assignment_rules.py`  | Source-to-team routing configuration and preview                                             |
 | Teams                   | `app/modules/leads/teams.py`             | GET/POST/PUT team management                                                                 |
 | Dashboard               | `app/modules/leads/dashboard.py`         | Scoped dashboard statistics and recent leads                                                 |
 | Marketplace             | `app/modules/marketplace/routes.py`      | Catalog/accounts, credential replacement, test/sync, activation/pause/retirement and history |
@@ -174,6 +179,38 @@ the business pool gains no access to global identities. All membership writes
 require `users.manage`, enforce the grant ceiling and protect the final active Owner.
 Lead assignment requires `leads.assign` alongside applicable create/edit permissions
 and existing visibility constraints.
+
+### Platform administration
+
+Platform operators have identities separate from organization memberships and
+use a dedicated HttpOnly session cookie, CSRF token and rate-limited login. There
+is no public operator registration endpoint. Support operators can inspect
+organizations, subscription state, user lists and the platform audit log. Only
+administrators can change subscriptions/access, revoke or restore memberships,
+or generate a one-time temporary password.
+
+| Method | Path | Purpose |
+| ------ | ---- | ------- |
+| POST | `/platform/login`, `/platform/logout` | Establish/revoke a platform session |
+| GET | `/platform/me` | Current platform operator and access level |
+| GET | `/platform/organizations` | Search and cursor-page organizations |
+| GET, PUT | `/platform/organizations/{organization_id}` | Inspect organization or change lifecycle, plan, dates, export window and user limit |
+| GET | `/platform/organizations/{organization_id}/users` | Search and cursor-page tenant memberships |
+| PUT | `/platform/organizations/{organization_id}/users/{membership_id}` | Confirm by exact email, then disable or restore membership |
+| POST | `/platform/organizations/{organization_id}/users/{membership_id}/generate-password` | Confirm by exact email; return a one-time password, force change and revoke sessions globally |
+| GET | `/platform/audit` | Browse platform audit history by organization |
+
+Suspended/closed organizations lose sessions immediately. An expired
+subscription is blocked unless `export_access_until` is in the future; during
+that window authenticated reads and existing exports remain available, while
+changes, invitations, website intake and marketplace ingestion are blocked. The
+user cap counts active and invited memberships. Passwords are never readable or
+emailed; operators share generated credentials through a secure channel, and
+users must change them before other organization API requests.
+
+Use the dedicated `crm_platform_provisioner` database role for the out-of-band
+bootstrap command; never use the application runtime role. See
+[local operator bootstrap](../docs/DOCKER-SETUP.md#platform-operator-bootstrap).
 
 ### Leads
 

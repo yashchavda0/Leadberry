@@ -51,6 +51,8 @@ def main() -> int:
         tests = [sys.executable, "-m", "pytest", "-q"]
         if "--marketplace" in sys.argv:
             tests.extend(["tests/test_marketplace.py", "tests/test_route_groups.py"])
+        elif "--platform" in sys.argv:
+            tests.extend(["tests/test_platform_admin.py", "tests/test_route_groups.py"])
         with (ROOT / "frontend" / "marketplace-test-results.log").open("w", encoding="utf-8") as test_log:
             result = subprocess.run(tests, cwd=ROOT / "backend", env=environment, stdout=test_log, stderr=subprocess.STDOUT).returncode
         print((ROOT / "frontend" / "marketplace-test-results.log").read_text(encoding="utf-8"))

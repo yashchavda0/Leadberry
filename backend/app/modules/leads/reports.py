@@ -74,7 +74,7 @@ async def build_report(
                     "count(*) FILTER(WHERE l.next_follow_up_at<now()) AS missed,"
                     "count(*) FILTER(WHERE l.next_follow_up_at>=now()) AS upcoming "
                     f"{JOINS} WHERE {boundary} AND l.next_follow_up_at IS NOT NULL AND {within('l.next_follow_up_at')} "
-                    "AND s.category NOT IN ('won','lost') GROUP BY l.assigned_membership_id,m.display_name"
+                    "GROUP BY l.assigned_membership_id,m.display_name"
                 ),
                 {**parameters, "none": UNASSIGNED},
             )
@@ -86,16 +86,98 @@ async def build_report(
         (
             await connection.execute(
                 text(
-                    "SELECT l.assigned_membership_id AS member_id,COALESCE(m.display_name,:none) AS name,count(*) AS completed "
-                    "FROM crm.lead_status_history h JOIN crm.leads l ON l.org_id=h.org_id AND l.id=h.lead_id "
-                    "LEFT JOIN crm.organization_memberships m ON m.org_id=l.org_id AND m.id=l.assigned_membership_id "
-                    f"WHERE {boundary} AND {within('h.created_at')} GROUP BY l.assigned_membership_id,m.display_name"
+                    "SELECT t.assigned_membership_id AS member_id,COALESCE(m.display_name,:none) AS name,count(*) AS completed "
+                    "FROM crm.follow_up_tasks t JOIN crm.leads l ON l.org_id=t.org_id AND l.id=t.lead_id "
+                    "LEFT JOIN crm.organization_memberships m ON m.org_id=t.org_id AND m.id=t.assigned_membership_id "
+                    f"WHERE {boundary} AND t.state='completed' AND {within('t.completed_at')} "
+                    "GROUP BY t.assigned_membership_id,m.display_name"
                 ),
                 {**parameters, "none": UNASSIGNED},
             )
         )
         .mappings()
         .all()
+    )
+    activity_events = (
+        (
+            await connection.execute(
+                text(
+                    "SELECT a.actor_membership_id AS member_id,COALESCE(m.display_name,:none) AS name,"
+                    "count(*) AS activities,count(DISTINCT a.lead_id) AS leads_touched,"
+                    "count(*) FILTER(WHERE a.outcome='connected') AS connected_activities,"
+                    "count(DISTINCT a.lead_id) FILTER(WHERE a.outcome='connected') AS leads_connected "
+                    "FROM crm.lead_activities a JOIN crm.leads l ON l.org_id=a.org_id AND l.id=a.lead_id "
+                    "LEFT JOIN crm.organization_memberships m ON m.org_id=a.org_id AND m.id=a.actor_membership_id "
+                    f"WHERE {boundary} AND {within('a.created_at')} "
+                    "GROUP BY a.actor_membership_id,m.display_name"
+                ),
+                {**parameters, "none": UNASSIGNED},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    first_activity = (
+        (
+            await connection.execute(
+                text(
+                    "WITH first_activity AS ("
+                    "SELECT l.id,l.received_at,a.actor_membership_id,a.created_at "
+                    "FROM crm.leads l JOIN LATERAL ("
+                    "SELECT actor_membership_id,created_at FROM crm.lead_activities x "
+                    "WHERE x.org_id=l.org_id AND x.lead_id=l.id AND x.created_at>=l.received_at "
+                    "AND x.created_at<((CAST(:end AS date)+1)::timestamp AT TIME ZONE :zone) "
+                    "ORDER BY x.created_at,x.id LIMIT 1"
+                    ") a ON TRUE WHERE "
+                    f"{boundary} AND {within('l.received_at')}) "
+                    "SELECT f.actor_membership_id AS member_id,COALESCE(m.display_name,:none) AS name,"
+                    "count(*) AS first_activity_leads,"
+                    "round(avg(EXTRACT(EPOCH FROM (f.created_at-f.received_at))/3600)::numeric,1) AS average_first_activity_hours,"
+                    "round(percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (f.created_at-f.received_at))/3600)::numeric,1) AS median_first_activity_hours "
+                    "FROM first_activity f LEFT JOIN crm.organization_memberships m "
+                    "ON m.org_id=:org AND m.id=f.actor_membership_id GROUP BY f.actor_membership_id,m.display_name"
+                ),
+                {**parameters, "none": UNASSIGNED},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    activity_people: dict = {}
+    for row in activity_events:
+        activity_people[row["member_id"]] = {
+            "member_id": row["member_id"],
+            "name": row["name"],
+            "activities": row["activities"],
+            "leads_touched": row["leads_touched"],
+            "connected_activities": row["connected_activities"],
+            "leads_connected": row["leads_connected"],
+            "first_activity_leads": 0,
+            "average_first_activity_hours": None,
+            "median_first_activity_hours": None,
+        }
+    for row in first_activity:
+        entry = activity_people.setdefault(
+            row["member_id"],
+            {
+                "member_id": row["member_id"],
+                "name": row["name"],
+                "activities": 0,
+                "leads_touched": 0,
+                "connected_activities": 0,
+                "leads_connected": 0,
+            },
+        )
+        entry.update(
+            {
+                "first_activity_leads": row["first_activity_leads"],
+                "average_first_activity_hours": row["average_first_activity_hours"],
+                "median_first_activity_hours": row["median_first_activity_hours"],
+            }
+        )
+    activity_by_user = sorted(
+        activity_people.values(),
+        key=lambda item: (item["name"] == UNASSIGNED, item["name"].lower()),
     )
     people: dict = {}
     for row in follow:
@@ -148,6 +230,7 @@ async def build_report(
         .all()
     )
     open_ids = {str(s["id"]) for s in statuses if s["type"] not in ("won", "lost")}
+    won_ids = {str(s["id"]) for s in statuses if s["type"] == "won"}
     users: dict = {}
     for row in grouped:
         entry = users.setdefault(
@@ -191,23 +274,37 @@ async def build_report(
     sources: dict = {}
     for row in sourced:
         entry = sources.setdefault(
-            row["name"], {"name": row["name"], "total": 0, "open": 0, "counts": {}}
+            row["name"],
+            {"name": row["name"], "total": 0, "open": 0, "converted": 0, "counts": {}},
         )
         entry["counts"][str(row["status_id"])] = row["count"]
         entry["total"] += row["count"]
         if str(row["status_id"]) in open_ids:
             entry["open"] += row["count"]
+        if str(row["status_id"]) in won_ids:
+            entry["converted"] += row["count"]
     by_source = sorted(
         sources.values(), key=lambda item: (-item["total"], item["name"])
     )
+    source_conversion = [
+        {
+            **row,
+            "conversion_rate": (
+                round(100 * row["converted"] / row["total"], 1) if row["total"] else 0.0
+            ),
+        }
+        for row in by_source
+    ]
     return {
         "start": start,
         "end": end,
         "timezone": zone_name,
         "statuses": statuses,
         "follow_up": follow_up,
+        "activity_by_user": activity_by_user,
         "by_user": by_user,
         "by_source": by_source,
+        "source_conversion": source_conversion,
     }
 
 
@@ -253,6 +350,29 @@ def build_report_workbook(report: dict) -> bytes:
             for r in report["follow_up"]
         ],
     )
+    activities = workbook.create_sheet("Activities by user")
+    sheet_rows(
+        activities,
+        [
+            "User",
+            "Activities",
+            "Leads touched",
+            "Connected activities",
+            "Leads connected",
+            "Median first activity hours",
+        ],
+        [
+            [
+                r["name"],
+                r["activities"],
+                r["leads_touched"],
+                r["connected_activities"],
+                r["leads_connected"],
+                r["median_first_activity_hours"],
+            ]
+            for r in report["activity_by_user"]
+        ],
+    )
     leads = workbook.create_sheet("Leads by user")
     statuses = report["statuses"]
     sheet_rows(
@@ -272,6 +392,15 @@ def build_report_workbook(report: dict) -> bytes:
             [r["name"], r["total"], r["open"]]
             + [r["counts"].get(str(s["id"]), 0) for s in statuses]
             for r in report["by_source"]
+        ],
+    )
+    conversion = workbook.create_sheet("Source conversion")
+    sheet_rows(
+        conversion,
+        ["Source", "Leads received", "Currently won", "Conversion rate (%)"],
+        [
+            [r["name"], r["total"], r["converted"], r["conversion_rate"]]
+            for r in report["source_conversion"]
         ],
     )
     buffer = BytesIO()

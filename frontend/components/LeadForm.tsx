@@ -35,7 +35,7 @@ export default function LeadForm({ lead }: { lead?: Lead }) {
   const selectedStatus = options.data?.statuses.find(status => status.id === effectiveStatusId);
   const statusRequired = selectedStatus?.required_fields || [];
   const isRequired = (key: string) => key === "next_follow_up_at"
-    ? selectedStatus?.type === "pending" || statusRequired.includes(key)
+    ? !(lead && lead.status_id === effectiveStatusId && !lead.next_follow_up_at) && (selectedStatus?.type === "pending" || statusRequired.includes(key))
     : statusRequired.includes(key);
   const fieldHint = (key: string, piiField = false) => {
     if (isRequired(key) && !pii) return "Required for selected status; contact-data permission required";

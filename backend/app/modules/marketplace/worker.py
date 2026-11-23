@@ -21,6 +21,7 @@ from ...core.database import (
 )
 from ...core.settings import Settings
 from ..identity.service import AccessError, audit, effective_access
+from ..leads.assignment_rules import route_new_lead
 from . import adapters, indiamart
 from .catalog import provider
 from .crypto import decrypt_credentials
@@ -164,7 +165,9 @@ async def _permitted(connection, org: UUID, member: UUID) -> bool:
 async def _claim(connection, org: UUID) -> dict | None:
     if not await connection.scalar(
         text(
-            "SELECT id FROM crm.organizations WHERE id=:org AND status='active' FOR SHARE"
+            "SELECT id FROM crm.organizations WHERE id=:org AND status='active' "
+            "AND subscription_status IN ('trialing','active','past_due') "
+            "AND (subscription_ends_at IS NULL OR subscription_ends_at>now()) FOR SHARE"
         ),
         {"org": org},
     ):
@@ -505,12 +508,16 @@ async def finish(
     gap: tuple[datetime, datetime] | None = None,
 ) -> None:
     async with tenant_transaction(engine, org) as connection:
-        await connection.execute(
+        organization = await connection.scalar(
             text(
-                "SELECT id FROM crm.organizations WHERE id=:org AND status='active' FOR SHARE"
+                "SELECT id FROM crm.organizations WHERE id=:org AND status='active' "
+                "AND subscription_status IN ('trialing','active','past_due') "
+                "AND (subscription_ends_at IS NULL OR subscription_ends_at>now()) FOR SHARE"
             ),
             {"org": org},
         )
+        if not organization:
+            return
         current = (
             (
                 await connection.execute(
@@ -605,6 +612,9 @@ async def finish(
                     )
                     row = (await connection.execute(text(LEAD_UPSERT), values)).one()
                     if row.created:
+                        await route_new_lead(
+                            connection, org, run["provider_code"], row.id
+                        )
                         accepted += 1
                         await audit(
                             connection, org, None, "marketplace.lead_received", row.id

@@ -10,8 +10,10 @@ import { Tip } from "./ui/tip";
 export const NAV: { href: string; label: string; permission: string; icon: IconName }[] = [
   { href: "/", label: "Overview", permission: "dashboard.view", icon: "dashboard" },
   { href: "/leads", label: "Leads", permission: "leads.view", icon: "target" },
+  { href: "/follow-ups", label: "Follow-ups", permission: "leads.view", icon: "calendar" },
   { href: "/users", label: "User management", permission: "users.view", icon: "leads" },
   { href: "/marketplace", label: "Marketplace", permission: "marketplace.view", icon: "store" },
+  { href: "/intake", label: "Lead intake", permission: "api_keys.manage", icon: "plug" },
   { href: "/reports", label: "Reports", permission: "reports.view", icon: "chart" },
   { href: "/settings", label: "Organization", permission: "settings.view", icon: "building" },
 ];
@@ -36,7 +38,7 @@ export default function Sidebar() {
       </div>
       <span className="nav-section nav-label">Menu</span>
       <nav className="nav" aria-label="Main">
-        {NAV.filter(link => can(link.permission) || link.href === "/users" && can("roles.view")).map(link => item(link.href, link.label, link.icon, link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)))}
+        {NAV.filter(link => can(link.permission) || link.href === "/users" && can("roles.view") || link.href === "/intake" && can("assignment_rules.manage")).map(link => item(link.href, link.label, link.icon, link.href === "/" ? pathname === "/" : pathname.startsWith(link.href)))}
       </nav>
       <div className="sidebar-footer">
         <span className="nav-section nav-label">Account</span>

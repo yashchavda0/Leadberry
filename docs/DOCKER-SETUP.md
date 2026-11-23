@@ -17,7 +17,7 @@ Docker runs **PostgreSQL and Redis only**. The backend and frontend run on the h
 
 | Service     | Address                 | Database / user                                                                 | Password                                                  |
 | ----------- | ----------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| PostgreSQL  | `127.0.0.1:55432`       | database `leadberry`; users `crm_migrator`, `crm_api`, `crm_auth`, `crm_worker` | `.docker-secrets/postgres_password` (shared by all users) |
+| PostgreSQL  | `127.0.0.1:55432`       | database `leadberry`; users `crm_migrator`, `crm_api`, `crm_auth`, `crm_worker`, `crm_platform_provisioner` | `.docker-secrets/postgres_password` (local development only) |
 | Redis       | `127.0.0.1:6379`        | no username                                                                     | `.docker-secrets/redis_password`                          |
 | Backend API | `http://localhost:8000` | docs at `/api/v1/docs`                                                          | none                                                      |
 | Frontend    | `http://localhost:3000` |                                                                                 | none                                                      |
@@ -86,6 +86,38 @@ npm.cmd run dev
 
 Then open http://localhost:3000/onboarding to create a workspace, or
 http://localhost:3000/login to sign in.
+
+## Platform operator bootstrap
+
+After upgrading to the latest Alembic revision, create the restricted local
+provisioning role. This works with existing Docker volumes and does not delete
+database data:
+
+```powershell
+.\backend\.venv\Scripts\python.exe .\scripts\Initialize-PlatformProvisioner.py
+```
+
+Provision a dedicated operator identity. The command prompts for a strong
+password if the account does not already have one; existing customer identities
+cannot be promoted as platform operators.
+
+```powershell
+$secret = (Get-Content .\.docker-secrets\postgres_password -Raw).Trim()
+$encoded = [uri]::EscapeDataString($secret)
+$env:PLATFORM_PROVISION_DATABASE_URL = "postgresql+psycopg://crm_platform_provisioner:$encoded@127.0.0.1:55432/leadberry"
+$env:APP_ENVIRONMENT = 'development'
+Set-Location .\backend
+.\.venv\Scripts\python.exe -m app.modules.identity.provision_operator --email platform-admin@example.com --name "Platform Admin" --access-level administrator
+Set-Location ..
+Remove-Item Env:PLATFORM_PROVISION_DATABASE_URL
+Remove-Item Env:APP_ENVIRONMENT
+```
+
+Then sign in at http://localhost:3000/platform/login. Production deployments
+must create the same least-privilege database role through their DB provisioning
+process, set `PLATFORM_PROVISION_DATABASE_URL` only for the one-time bootstrap,
+and remove it afterward. The application does not expose a public operator
+signup page.
 
 Health checks:
 

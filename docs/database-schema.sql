@@ -12,6 +12,7 @@ CREATE TABLE app_users (
     email text NOT NULL CHECK (email = lower(btrim(email))),
     full_name text NOT NULL CHECK (length(full_name) BETWEEN 1 AND 200),
     password_hash text,
+    password_change_required boolean NOT NULL DEFAULT false,
     email_verified_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
@@ -24,6 +25,13 @@ CREATE TABLE organizations (
     name text NOT NULL,
     status text NOT NULL DEFAULT 'provisioning'
         CHECK (status IN ('provisioning', 'active', 'suspended', 'closed')),
+    subscription_plan text NOT NULL DEFAULT 'legacy',
+    subscription_status text NOT NULL DEFAULT 'active'
+        CHECK (subscription_status IN ('trialing', 'active', 'past_due', 'expired', 'canceled')),
+    subscription_started_at timestamptz,
+    subscription_ends_at timestamptz,
+    export_access_until timestamptz,
+    max_users integer NOT NULL DEFAULT 100 CHECK (max_users > 0),
     timezone text NOT NULL DEFAULT 'Asia/Kolkata',
     currency char(3) NOT NULL DEFAULT 'INR',
     profile jsonb NOT NULL DEFAULT '{}' CHECK (jsonb_typeof(profile) = 'object'),
@@ -39,6 +47,17 @@ CREATE TABLE platform_operators (
     access_level text NOT NULL CHECK (access_level IN ('support', 'administrator')),
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE platform_sessions (
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES app_users(id),
+    token_hash bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+    csrf_token_hash bytea NOT NULL CHECK (octet_length(csrf_token_hash) = 32),
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX platform_sessions_user ON platform_sessions (user_id, expires_at);
 
 -- A deliberately minimal, non-tenant routing directory for authentication.
 -- No organization profile or customer data is exposed through it.
@@ -889,13 +908,15 @@ CREATE INDEX audit_actor ON audit_logs (org_id, actor_membership_id, occurred_at
 
 CREATE TABLE platform_audit_logs (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    operator_user_id uuid NOT NULL REFERENCES platform_operators(user_id),
-    target_org_id uuid REFERENCES organizations(id),
+    actor_user_id uuid NOT NULL REFERENCES app_users(id),
+    organization_id uuid REFERENCES organizations(id),
     action text NOT NULL,
-    request_id uuid NOT NULL,
-    metadata jsonb NOT NULL DEFAULT '{}',
+    entity_type text NOT NULL,
+    entity_id uuid,
+    details jsonb NOT NULL DEFAULT '{}',
     occurred_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE INDEX platform_audit_org_time ON platform_audit_logs (organization_id, occurred_at DESC, id DESC);
 
 CREATE FUNCTION current_org_id() RETURNS uuid
 LANGUAGE sql STABLE

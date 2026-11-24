@@ -353,7 +353,13 @@ async def update_organization(
                 "max_users": values["max_users"],
             },
         )
-        if values["status"] != "active":
+        access_changed = (
+            row["status"] != values["status"]
+            or row["subscription_status"] != values["subscription_status"]
+            or row["subscription_ends_at"] != values["subscription_ends_at"]
+            or row["export_access_until"] != values["export_access_until"]
+        )
+        if access_changed or values["status"] != "active":
             await connection.execute(
                 text("UPDATE crm.auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE org_id=:org"),
                 {"org": organization_id},
@@ -523,7 +529,8 @@ async def generate_user_password(
                 await connection.execute(
                     text(
                         "SELECT m.user_id,u.email FROM crm.organization_memberships m "
-                        "JOIN crm.app_users u ON u.id=m.user_id WHERE m.org_id=:org AND m.id=:member"
+                        "JOIN crm.app_users u ON u.id=m.user_id WHERE m.org_id=:org AND m.id=:member "
+                        "FOR UPDATE OF m,u"
                     ),
                     {"org": organization_id, "member": membership_id},
                 )

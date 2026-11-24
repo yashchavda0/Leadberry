@@ -170,6 +170,16 @@ def test_platform_operator_manages_subscription_users_and_passwords(owner):
     )
     assert ended.status_code == 200, ended.text
 
+    renewed = owner.post(
+        "/api/v1/auth/login",
+        json={
+            "organization_slug": organization["slug"],
+            "email": profile["email"],
+            "password": "replacement-account-password",
+        },
+    )
+    assert renewed.status_code == 200, renewed.text
+    customer_csrf = renewed.json()["csrf_token"]
     owner.headers["X-CSRF-Token"] = customer_csrf
     assert owner.get("/api/v1/auth/me").json()["access_mode"] == "export_only"
     assert owner.get("/api/v1/leads/export").status_code == 200

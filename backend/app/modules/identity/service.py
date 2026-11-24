@@ -638,15 +638,14 @@ class IdentityService:
     async def change_password(
         self, principal: Principal, current_password: str, new_password: str
     ) -> None:
-        async with self.engine.connect() as connection:
-            password_hash = await connection.scalar(
-                text("SELECT password_hash FROM crm.app_users WHERE id=:user"),
-                {"user": principal.user_id},
-            )
-        if not await self.passwords.verify(current_password, password_hash):
-            raise AccessError(403, "invalid_current_password")
         new_hash = await self.passwords.hash(new_password)
         async with self.engine.begin() as connection:
+            password_hash = await connection.scalar(
+                text("SELECT password_hash FROM crm.app_users WHERE id=:user FOR UPDATE"),
+                {"user": principal.user_id},
+            )
+            if not await self.passwords.verify(current_password, password_hash):
+                raise AccessError(403, "invalid_current_password")
             await connection.execute(
                 text(
                     "UPDATE crm.app_users SET password_hash=:hash,password_change_required=false,updated_at=now() "

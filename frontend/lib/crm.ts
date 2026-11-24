@@ -116,7 +116,48 @@ export type Identity = {
   permissions: string[];
   data_scope: Scope;
   landing_page: string | null;
+  access_mode: "full" | "export_only";
   password_change_required: boolean;
+};
+export type PlatformOrganization = {
+  id: string;
+  slug: string;
+  name: string;
+  status: "active" | "suspended" | "closed";
+  subscription_plan: string;
+  subscription_status: "trialing" | "active" | "past_due" | "expired" | "canceled";
+  subscription_started_at: string | null;
+  subscription_ends_at: string | null;
+  export_access_until: string | null;
+  max_users: number;
+  user_count: number;
+  created_at: string;
+};
+export type PlatformUser = {
+  id: string;
+  user_id: string;
+  display_name: string;
+  status: "active" | "invited" | "disabled";
+  is_owner: boolean;
+  created_at: string;
+  email: string;
+};
+export type PlatformOperatorIdentity = {
+  user_id: string;
+  email: string;
+  full_name: string;
+  access_level: "support" | "administrator";
+};
+export type PlatformAuditEntry = {
+  id: string;
+  actor_user_id: string;
+  actor_email: string;
+  organization_id: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  details: Record<string, unknown>;
+  occurred_at: string;
 };
 export type Organization = {
   id: string;
@@ -303,6 +344,16 @@ export type Dashboard = {
     updated: number;
     average_days: number | null;
     median_days: number | null;
+  };
+  response_activity: {
+    activities: number;
+    leads_with_activity: number;
+    connected_activities: number;
+    leads_connected: number;
+    average_first_activity_hours: number | null;
+    median_first_activity_hours: number | null;
+    average_first_connected_hours: number | null;
+    median_first_connected_hours: number | null;
   };
   outcomes: {
     converted_leads: number;

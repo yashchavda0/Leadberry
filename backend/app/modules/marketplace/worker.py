@@ -166,7 +166,8 @@ async def _claim(connection, org: UUID) -> dict | None:
     if not await connection.scalar(
         text(
             "SELECT id FROM crm.organizations WHERE id=:org AND status='active' "
-            "AND subscription_status IN ('trialing','active','past_due') "
+            "AND (subscription_status IN ('trialing','active','past_due') "
+            "OR (subscription_status='canceled' AND subscription_ends_at>now())) "
             "AND (subscription_ends_at IS NULL OR subscription_ends_at>now()) FOR SHARE"
         ),
         {"org": org},
@@ -511,7 +512,8 @@ async def finish(
         organization = await connection.scalar(
             text(
                 "SELECT id FROM crm.organizations WHERE id=:org AND status='active' "
-                "AND subscription_status IN ('trialing','active','past_due') "
+                "AND (subscription_status IN ('trialing','active','past_due') "
+                "OR (subscription_status='canceled' AND subscription_ends_at>now())) "
                 "AND (subscription_ends_at IS NULL OR subscription_ends_at>now()) FOR SHARE"
             ),
             {"org": org},

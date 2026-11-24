@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import getpass
 import os
+import sys
 from uuid import uuid4
 
 from pydantic import EmailStr, SecretStr, TypeAdapter
@@ -9,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from ...core.database import create_database_engine
+from ...core.event_loop import selector_event_loop
 from ...core.settings import Settings
 from .security import PasswordService
 
@@ -95,7 +97,10 @@ def main() -> None:
     parser.add_argument("--access-level", choices=("support", "administrator"), default="administrator")
     args = parser.parse_args()
     email = str(TypeAdapter(EmailStr).validate_python(args.email)).strip().lower()
-    asyncio.run(provision(email, args.name, args.access_level))
+    asyncio.run(
+        provision(email, args.name, args.access_level),
+        loop_factory=selector_event_loop if sys.platform == "win32" else None,
+    )
 
 
 if __name__ == "__main__":

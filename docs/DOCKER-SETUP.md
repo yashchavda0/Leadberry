@@ -117,7 +117,9 @@ Then sign in at http://localhost:3000/platform/login. Production deployments
 must create the same least-privilege database role through their DB provisioning
 process, set `PLATFORM_PROVISION_DATABASE_URL` only for the one-time bootstrap,
 and remove it afterward. The application does not expose a public operator
-signup page.
+signup page. MFA is not implemented yet; before exposing this console on the
+public internet, restrict `/platform/login` at the ingress/network layer and use
+dedicated operator accounts with unique strong passwords.
 
 Health checks:
 

@@ -32,11 +32,13 @@ async def provision(email: str, full_name: str, access_level: str) -> None:
         )
     engine = create_database_engine(settings)
     try:
-        async with engine.begin() as connection:
+        async with engine.connect() as connection:
             user = (
                 (
                     await connection.execute(
-                        text("SELECT id,password_hash FROM crm.app_users WHERE email=:email FOR UPDATE"),
+                        text(
+                            "SELECT id,password_hash FROM crm.app_users WHERE email=:email"
+                        ),
                         {"email": email},
                     )
                 )
@@ -52,23 +54,64 @@ async def provision(email: str, full_name: str, access_level: str) -> None:
                     raise SystemExit(
                         "That email already belongs to a customer identity; use a dedicated platform-admin email."
                     )
-            if user is None or user["password_hash"] is None:
-                password = getpass.getpass("Set platform operator password (min 12 characters): ")
-                confirmation = getpass.getpass("Confirm password: ")
-                if len(password) < 12 or password != confirmation:
-                    raise SystemExit("Passwords must match and contain at least 12 characters.")
-                password_hash = await PasswordService().hash(password)
-                if user is None:
-                    user_id = uuid4()
+        password_hash = None
+        if user is None or user["password_hash"] is None:
+            password = getpass.getpass(
+                "Set platform operator password (min 12 characters): "
+            )
+            confirmation = getpass.getpass("Confirm password: ")
+            if len(password) < 12 or password != confirmation:
+                raise SystemExit(
+                    "Passwords must match and contain at least 12 characters."
+                )
+            password_hash = await PasswordService().hash(password)
+
+        async with engine.begin() as connection:
+            user = (
+                (
                     await connection.execute(
                         text(
-                            "INSERT INTO crm.app_users(id,email,full_name,password_hash) "
-                            "VALUES(:id,:email,:name,:hash)"
+                            "SELECT id,password_hash FROM crm.app_users WHERE email=:email FOR UPDATE"
                         ),
-                        {"id": user_id, "email": email, "name": full_name, "hash": password_hash},
+                        {"email": email},
                     )
-                else:
-                    user_id = user["id"]
+                )
+                .mappings()
+                .first()
+            )
+            if user is None:
+                if password_hash is None:
+                    raise SystemExit(
+                        "Identity changed during provisioning; rerun the command."
+                    )
+                user_id = uuid4()
+                await connection.execute(
+                    text(
+                        "INSERT INTO crm.app_users(id,email,full_name,password_hash) "
+                        "VALUES(:id,:email,:name,:hash)"
+                    ),
+                    {
+                        "id": user_id,
+                        "email": email,
+                        "name": full_name,
+                        "hash": password_hash,
+                    },
+                )
+            else:
+                operator = await connection.scalar(
+                    text("SELECT 1 FROM crm.platform_operators WHERE user_id=:id"),
+                    {"id": user["id"]},
+                )
+                if not operator:
+                    raise SystemExit(
+                        "That email already belongs to a customer identity; use a dedicated platform-admin email."
+                    )
+                user_id = user["id"]
+                if user["password_hash"] is None:
+                    if password_hash is None:
+                        raise SystemExit(
+                            "Identity changed during provisioning; rerun the command."
+                        )
                     await connection.execute(
                         text(
                             "UPDATE crm.app_users SET password_hash=:hash,password_change_required=false,updated_at=now() "
@@ -76,8 +119,6 @@ async def provision(email: str, full_name: str, access_level: str) -> None:
                         ),
                         {"id": user_id, "hash": password_hash},
                     )
-            else:
-                user_id = user["id"]
             await connection.execute(
                 text(
                     "INSERT INTO crm.platform_operators(user_id,access_level) VALUES(:user,:level) "
@@ -91,10 +132,14 @@ async def provision(email: str, full_name: str, access_level: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Provision a LeadBerry platform operator")
+    parser = argparse.ArgumentParser(
+        description="Provision a LeadBerry platform operator"
+    )
     parser.add_argument("--email", required=True)
     parser.add_argument("--name", default="Platform Operator")
-    parser.add_argument("--access-level", choices=("support", "administrator"), default="administrator")
+    parser.add_argument(
+        "--access-level", choices=("support", "administrator"), default="administrator"
+    )
     args = parser.parse_args()
     email = str(TypeAdapter(EmailStr).validate_python(args.email)).strip().lower()
     asyncio.run(
